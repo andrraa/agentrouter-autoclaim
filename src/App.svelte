@@ -83,7 +83,7 @@
       {#each accounts as account}
         <div class="grid items-center gap-4 border-t py-4 first:border-t-0 sm:grid-cols-[1fr_2fr_auto]">
           <div><p class="font-semibold">{account.label}</p><p class="text-sm text-muted-foreground">GitHub OAuth</p></div>
-          <div><p class="text-sm">{account.last_result || 'Never run'}</p><p class="text-xs text-muted-foreground">{account.last_claim_at ? new Date(account.last_claim_at).toLocaleString('en-US') : ''}</p></div>
+          <div><Badge variant={account.last_result?.startsWith('Success') ? 'default' : account.last_result ? 'destructive' : 'secondary'}>{account.last_result?.startsWith('Success') ? 'Success' : account.last_result ? 'Failed' : 'Never run'}</Badge><p class="mt-1 text-xs text-muted-foreground">{account.last_claim_at ? new Date(account.last_claim_at).toLocaleString('en-US') : ''}</p></div>
           <div class="flex gap-2"><Button size="sm" disabled={claimingId !== null} onclick={() => claim(account.id)}>{claimingId === account.id ? 'Claiming…' : 'Claim'}</Button><Button size="sm" variant="destructive" disabled={claimingId !== null} onclick={() => remove(account.id)}>Delete</Button></div>
         </div>
       {:else}<p class="text-sm text-muted-foreground">No accounts yet.</p>{/each}
