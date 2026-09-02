@@ -30,7 +30,7 @@ function githubCookies(header: string) {
 async function oauthState() {
   const response = await fetch(`${BASE}/api/oauth/state`, { headers: { accept: 'application/json', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT } });
   const body = await response.json<{ success?: boolean; data?: string }>();
-  if (!body.success || !body.data) throw new Error('Gagal mengambil OAuth state');
+  if (!body.success || !body.data) throw new Error('Failed to get OAuth state');
   return body.data;
 }
 async function readSelf(page: import('@cloudflare/playwright').Page) {
@@ -52,18 +52,18 @@ async function claim(account: Account, env: Env) {
       await context.addCookies(githubCookies(await decrypt(account.github_cookie, env)));
       const page = await context.newPage();
       await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
-      if (await page.locator('#login_field').count()) throw new Error('Cookie GitHub invalid atau expired');
+      if (await page.locator('#login_field').count()) throw new Error('GitHub cookie is invalid or expired');
       const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
       await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
       const authorize = page.getByRole('button', { name: /authorize/i }).first();
       if (await authorize.isVisible().catch(() => false)) await authorize.click();
       await page.waitForURL(/agentrouter\.org/, { timeout: 45_000 });
       const user = await readSelf(page);
-      result = `Berhasil · ${user.display_name || user.username} · saldo $${((user.quota || 0) / 500000).toFixed(2)}`;
+      result = `Success · ${user.display_name || user.username} · balance $${((user.quota || 0) / 500000).toFixed(2)}`;
     } finally { await browser.close(); }
-  } catch (error) { result = `Gagal: ${error instanceof Error ? error.message : String(error)}`; }
+  } catch (error) { result = `Failed: ${error instanceof Error ? error.message : String(error)}`; }
   await env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(new Date().toISOString(), result, account.id).run();
-  return { ok: result.startsWith('Berhasil'), result };
+  return { ok: result.startsWith('Success'), result };
 }
 
 async function api(request: Request, env: Env) {
@@ -75,7 +75,7 @@ async function api(request: Request, env: Env) {
   }
   if (request.method === 'POST' && url.pathname === '/api/accounts') {
     const body = await request.json<{ label?: string; githubCookie?: string }>();
-    if (!body.label?.trim() || !body.githubCookie?.includes('=')) return json({ error: 'Label dan cookie GitHub wajib diisi' }, 400);
+    if (!body.label?.trim() || !body.githubCookie?.includes('=')) return json({ error: 'Label and GitHub cookie are required' }, 400);
     await env.DB.prepare('INSERT INTO accounts (label, github_cookie) VALUES (?, ?)').bind(body.label.trim(), await encrypt(body.githubCookie, env)).run();
     return json({ ok: true }, 201);
   }
@@ -83,7 +83,7 @@ async function api(request: Request, env: Env) {
   if (match && request.method === 'DELETE' && !match[2]) { await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(match[1]).run(); return json({ ok: true }); }
   if (match && request.method === 'POST' && match[2]) {
     const account = await env.DB.prepare('SELECT * FROM accounts WHERE id = ?').bind(match[1]).first<Account>();
-    return account ? json(await claim(account, env)) : json({ error: 'Account tidak ditemukan' }, 404);
+    return account ? json(await claim(account, env)) : json({ error: 'Account not found' }, 404);
   }
   return json({ error: 'Not found' }, 404);
 }
