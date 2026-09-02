@@ -43,6 +43,14 @@ async function addGithubCookies(context: import('@cloudflare/playwright').Browse
   if (!cookies.some((cookie) => cookie.name === 'user_session')) throw new Error('GitHub cookie must include user_session');
   for (const cookie of cookies) await context.addCookies([cookie]).catch(() => undefined);
 }
+async function waitForSession(context: import('@cloudflare/playwright').BrowserContext) {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const session = (await context.cookies(BASE)).find((cookie) => cookie.name === 'session');
+    if (session) return session;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return undefined;
+}
 async function oauthState() {
   const response = await fetch(`${BASE}/api/oauth/state`, { headers: { accept: 'application/json', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT } });
   const body = await response.json<{ success?: boolean; data?: string }>();
@@ -89,7 +97,7 @@ async function claim(account: Account, env: Env) {
       const callbackBody = callbackResponse?.url().includes('/api/oauth/github')
         ? await callbackResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
         : null;
-      const session = (await context.cookies(BASE)).find((cookie) => cookie.name === 'session');
+      const session = await waitForSession(context);
       const userId = session && sessionUserId(session.value);
       if (userId) await context.setExtraHTTPHeaders({ 'New-Api-User': userId });
       const user = await readSelf(page).catch(() => callbackBody?.data?.user || callbackBody?.data);
