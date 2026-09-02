@@ -7,7 +7,7 @@
 
   type Account = { id: number; label: string; enabled: number; last_claim_at?: string; last_result?: string };
   type History = { id: number; label: string; success: number; result: string; created_at: string };
-  let token = localStorage.getItem('access-code') || '', accounts: Account[] = [], history: History[] = [], form = { label: '', githubCookie: '' }, message = '', authenticated = false;
+  let token = localStorage.getItem('access-code') || '', accounts: Account[] = [], history: History[] = [], form = { label: '', githubCookie: '' }, message = '', authenticated = false, claimingId: number | null = null;
   async function call(path: string, options: RequestInit = {}) {
     const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...options.headers } });
     const body = await response.json();
@@ -26,7 +26,19 @@
     }
   }
   async function add() { try { await call('/api/accounts', { method: 'POST', body: JSON.stringify(form) }); form = { label: '', githubCookie: '' }; await load(); } catch (e) { message = (e as Error).message; } }
-  async function claim(id: number) { try { const result = await call(`/api/accounts/${id}/claim`, { method: 'POST' }); message = result.result; await load(); } catch (e) { message = (e as Error).message; } }
+  async function claim(id: number) {
+    claimingId = id;
+    message = 'Claiming…';
+    try {
+      const result = await call(`/api/accounts/${id}/claim`, { method: 'POST' });
+      await load();
+      message = result.result;
+    } catch (e) {
+      message = (e as Error).message;
+    } finally {
+      claimingId = null;
+    }
+  }
   async function remove(id: number) { if (confirm('Delete this account?')) { await call(`/api/accounts/${id}`, { method: 'DELETE' }); await load(); } }
 </script>
 
@@ -72,7 +84,7 @@
         <div class="grid items-center gap-4 border-t py-4 first:border-t-0 sm:grid-cols-[1fr_2fr_auto]">
           <div><p class="font-semibold">{account.label}</p><p class="text-sm text-muted-foreground">GitHub OAuth</p></div>
           <div><p class="text-sm">{account.last_result || 'Never run'}</p><p class="text-xs text-muted-foreground">{account.last_claim_at ? new Date(account.last_claim_at).toLocaleString('en-US') : ''}</p></div>
-          <div class="flex gap-2"><Button size="sm" onclick={() => claim(account.id)}>Claim</Button><Button size="sm" variant="destructive" onclick={() => remove(account.id)}>Delete</Button></div>
+          <div class="flex gap-2"><Button size="sm" disabled={claimingId !== null} onclick={() => claim(account.id)}>{claimingId === account.id ? 'Claiming…' : 'Claim'}</Button><Button size="sm" variant="destructive" disabled={claimingId !== null} onclick={() => remove(account.id)}>Delete</Button></div>
         </div>
       {:else}<p class="text-sm text-muted-foreground">No accounts yet.</p>{/each}
     </Card.Content>
