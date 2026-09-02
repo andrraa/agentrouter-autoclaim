@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentrouter-claim",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application" },
+  "browser": { "binding": "BROWSER" },
+  "d1_databases": [{ "binding": "DB", "database_name": "agentrouter-claim", "database_id": "REPLACE_WITH_D1_DATABASE_ID", "migrations_dir": "migrations" }],
+  "triggers": { "crons": ["5 0 * * *"] }
+}
