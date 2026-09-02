@@ -40,7 +40,7 @@ async function readSelf(page: import('@cloudflare/playwright').Page) {
     try { const body = JSON.parse(text); if (body.success && body.data) return body.data; } catch { /* WAF HTML */ }
     await page.waitForTimeout(4_000);
   }
-  throw new Error('AgentRouter self API diblokir WAF');
+  throw new Error('AgentRouter self API was blocked by the WAF');
 }
 async function claim(account: Account, env: Env) {
   let result = '';
@@ -54,12 +54,21 @@ async function claim(account: Account, env: Env) {
       await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
       if (await page.locator('#login_field').count()) throw new Error('GitHub cookie is invalid or expired');
       const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
-      await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+      let callbackResponse = await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
       const authorize = page.getByRole('button', { name: /authorize/i }).first();
-      if (await authorize.isVisible().catch(() => false)) await authorize.click();
+      if (await authorize.isVisible().catch(() => false)) {
+        [callbackResponse] = await Promise.all([
+          page.waitForResponse((response) => response.url().includes('/api/oauth/github'), { timeout: 45_000 }),
+          authorize.click()
+        ]);
+      }
       await page.waitForURL(/agentrouter\.org/, { timeout: 45_000 });
-      const user = await readSelf(page);
-      result = `Success · ${user.display_name || user.username} · balance $${((user.quota || 0) / 500000).toFixed(2)}`;
+      const callbackBody = callbackResponse?.url().includes('/api/oauth/github')
+        ? await callbackResponse.json().catch(() => null) as { success?: boolean; data?: Record<string, unknown> } | null
+        : null;
+      const user = await readSelf(page).catch(() => callbackBody?.data);
+      if (!user || callbackBody?.success === false) throw new Error('OAuth callback did not return an authenticated user');
+      result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
     } finally { await browser.close(); }
   } catch (error) { result = `Failed: ${error instanceof Error ? error.message : String(error)}`; }
   const createdAt = new Date().toISOString();
