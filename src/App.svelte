@@ -38,7 +38,7 @@
         <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); load(); }}>
           <div class="space-y-2"><Label for="token">Access code</Label><Input id="token" type="password" bind:value={token} autocomplete="current-password" autofocus /></div>
           {#if message}<p class="text-sm text-destructive">{message}</p>{/if}
-          <Button class="w-full">Open dashboard</Button>
+          <Button type="submit" class="w-full">Open dashboard</Button>
         </form>
       </Card.Content>
     </Card.Root>
@@ -59,7 +59,7 @@
       <form class="grid gap-3 sm:grid-cols-[1fr_3fr_auto]" onsubmit={(e) => { e.preventDefault(); add(); }}>
         <Input aria-label="Label" placeholder="Account label" bind:value={form.label} required />
         <Input aria-label="GitHub cookie" type="password" placeholder="user_session=...; _gh_sess=..." bind:value={form.githubCookie} required />
-        <Button>Add</Button>
+        <Button type="submit">Add</Button>
       </form>
       <p class="mt-3 text-xs text-muted-foreground">Cookies are encrypted with AES-GCM before being stored in D1.</p>
     </Card.Content>
