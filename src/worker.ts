@@ -29,10 +29,19 @@ function sessionUserId(value: string) {
   } catch { return undefined; }
 }
 function githubCookies(header: string) {
-  return header.replace(/[\r\n\t]+/g, ' ').split(';').map((part) => part.trim()).filter(Boolean).map((part) => {
+  const cookies = new Map<string, { name: string; value: string; url: string }>();
+  for (const part of header.replace(/[\r\n\t]+/g, ' ').split(';').map((value) => value.trim()).filter(Boolean)) {
     const at = part.indexOf('=');
-    return { name: part.slice(0, at).trim(), value: part.slice(at + 1).trim(), domain: '.github.com', path: '/' };
-  }).filter((cookie) => cookie.name && cookie.value);
+    const name = part.slice(0, at).trim();
+    const value = part.slice(at + 1).trim();
+    if (at > 0 && name && value && !/[\s={}?&]/.test(name)) cookies.set(name, { name, value, url: 'https://github.com' });
+  }
+  return [...cookies.values()];
+}
+async function addGithubCookies(context: import('@cloudflare/playwright').BrowserContext, header: string) {
+  const cookies = githubCookies(header);
+  if (!cookies.some((cookie) => cookie.name === 'user_session')) throw new Error('GitHub cookie must include user_session');
+  for (const cookie of cookies) await context.addCookies([cookie]).catch(() => undefined);
 }
 async function oauthState() {
   const response = await fetch(`${BASE}/api/oauth/state`, { headers: { accept: 'application/json', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT } });
@@ -64,7 +73,7 @@ async function claim(account: Account, env: Env) {
     const browser = await launch(env.BROWSER);
     try {
       const context = await browser.newContext({ userAgent: USER_AGENT });
-      await context.addCookies(githubCookies(await decrypt(account.github_cookie, env)));
+      await addGithubCookies(context, await decrypt(account.github_cookie, env));
       const page = await context.newPage();
       await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
       if (await page.locator('#login_field').count()) throw new Error('GitHub cookie is invalid or expired');
@@ -97,7 +106,10 @@ async function claim(account: Account, env: Env) {
         result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
       }
     } finally { await browser.close(); }
-  } catch (error) { result = `Failed: ${error instanceof Error ? error.message : String(error)}`; }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    result = `Failed: ${/429|rate limit/i.test(message) ? 'Cloudflare Browser Rendering rate limit exceeded; wait before retrying' : message.replace(/(user_session|_gh_sess)=[^;\s]+/g, '$1=[redacted]')}`;
+  }
   const createdAt = new Date().toISOString();
   const success = result.startsWith('Success');
   await env.DB.batch([
