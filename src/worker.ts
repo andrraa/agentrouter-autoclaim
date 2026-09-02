@@ -21,6 +21,13 @@ async function decrypt(value: string, env: Env) {
   const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
   return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, await key(env), bytes.slice(12)));
 }
+function sessionUserId(value: string) {
+  try {
+    const decode = (input: string) => atob(input.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(input.length / 4) * 4, '='));
+    const parts = decode(decodeURIComponent(value)).split('|');
+    return decode(parts[1]).match(/github_(\d+)/)?.[1];
+  } catch { return undefined; }
+}
 function githubCookies(header: string) {
   return header.replace(/[\r\n\t]+/g, ' ').split(';').map((part) => part.trim()).filter(Boolean).map((part) => {
     const at = part.indexOf('=');
@@ -64,10 +71,13 @@ async function claim(account: Account, env: Env) {
       }
       await page.waitForURL(/agentrouter\.org/, { timeout: 45_000 });
       const callbackBody = callbackResponse?.url().includes('/api/oauth/github')
-        ? await callbackResponse.json().catch(() => null) as { success?: boolean; data?: Record<string, unknown> } | null
+        ? await callbackResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
         : null;
-      const user = await readSelf(page).catch(() => callbackBody?.data);
-      if (!user || callbackBody?.success === false) throw new Error('OAuth callback did not return an authenticated user');
+      const session = (await context.cookies(BASE)).find((cookie) => cookie.name === 'session');
+      const userId = session && sessionUserId(session.value);
+      if (userId) await context.setExtraHTTPHeaders({ 'New-Api-User': userId });
+      const user = await readSelf(page).catch(() => callbackBody?.data?.user || callbackBody?.data);
+      if (!user || callbackBody?.success === false) throw new Error(callbackBody?.message || 'OAuth callback did not return an authenticated user');
       result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
     } finally { await browser.close(); }
   } catch (error) { result = `Failed: ${error instanceof Error ? error.message : String(error)}`; }
