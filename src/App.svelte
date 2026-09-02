@@ -6,7 +6,8 @@
   import * as Card from '$lib/components/ui/card';
 
   type Account = { id: number; label: string; enabled: number; last_claim_at?: string; last_result?: string };
-  let token = localStorage.getItem('access-code') || '', accounts: Account[] = [], form = { label: '', githubCookie: '' }, message = '', authenticated = false;
+  type History = { id: number; label: string; success: number; result: string; created_at: string };
+  let token = localStorage.getItem('access-code') || '', accounts: Account[] = [], history: History[] = [], form = { label: '', githubCookie: '' }, message = '', authenticated = false;
   async function call(path: string, options: RequestInit = {}) {
     const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...options.headers } });
     const body = await response.json();
@@ -15,7 +16,7 @@
   }
   async function load() {
     try {
-      accounts = await call('/api/accounts');
+      [accounts, history] = await Promise.all([call('/api/accounts'), call('/api/history')]);
       localStorage.setItem('access-code', token);
       authenticated = true;
       message = '';
@@ -74,6 +75,19 @@
           <div class="flex gap-2"><Button size="sm" onclick={() => claim(account.id)}>Claim</Button><Button size="sm" variant="destructive" onclick={() => remove(account.id)}>Delete</Button></div>
         </div>
       {:else}<p class="text-sm text-muted-foreground">No accounts yet.</p>{/each}
+    </Card.Content>
+  </Card.Root>
+
+  <Card.Root>
+    <Card.Header><Card.Title>Claim history</Card.Title><Card.Description>The latest 100 manual and scheduled runs.</Card.Description></Card.Header>
+    <Card.Content>
+      {#each history as item}
+        <div class="grid items-center gap-3 border-t py-4 first:border-t-0 sm:grid-cols-[1fr_3fr_auto]">
+          <div><p class="font-semibold">{item.label}</p><Badge variant={item.success ? 'default' : 'destructive'}>{item.success ? 'Success' : 'Failed'}</Badge></div>
+          <p class="text-sm text-muted-foreground">{item.result}</p>
+          <time class="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString('en-US')}</time>
+        </div>
+      {:else}<p class="text-sm text-muted-foreground">No claim history yet.</p>{/each}
     </Card.Content>
   </Card.Root>
 </main>

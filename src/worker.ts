@@ -62,8 +62,13 @@ async function claim(account: Account, env: Env) {
       result = `Success · ${user.display_name || user.username} · balance $${((user.quota || 0) / 500000).toFixed(2)}`;
     } finally { await browser.close(); }
   } catch (error) { result = `Failed: ${error instanceof Error ? error.message : String(error)}`; }
-  await env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(new Date().toISOString(), result, account.id).run();
-  return { ok: result.startsWith('Success'), result };
+  const createdAt = new Date().toISOString();
+  const success = result.startsWith('Success');
+  await env.DB.batch([
+    env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(createdAt, result, account.id),
+    env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, result, createdAt)
+  ]);
+  return { ok: success, result };
 }
 
 async function api(request: Request, env: Env) {
@@ -71,6 +76,10 @@ async function api(request: Request, env: Env) {
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/api/accounts') {
     const { results } = await env.DB.prepare('SELECT id, label, enabled, last_claim_at, last_result FROM accounts ORDER BY id DESC').all();
+    return json(results);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/history') {
+    const { results } = await env.DB.prepare('SELECT h.id, a.label, h.success, h.result, h.created_at FROM claim_history h JOIN accounts a ON a.id = h.account_id ORDER BY h.id DESC LIMIT 100').all();
     return json(results);
   }
   if (request.method === 'POST' && url.pathname === '/api/accounts') {
