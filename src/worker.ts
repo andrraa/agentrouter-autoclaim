@@ -1,6 +1,6 @@
 import { launch, type BrowserWorker } from '@cloudflare/playwright';
 
-interface Env { DB: D1Database; ASSETS: Fetcher; BROWSER: BrowserWorker; ADMIN_TOKEN: string; ENCRYPTION_KEY: string }
+interface Env { DB: D1Database; ASSETS: Fetcher; BROWSER: BrowserWorker; ACCESS_CODE: string; ENCRYPTION_KEY: string }
 type Account = { id: number; label: string; github_cookie: string; enabled: number };
 const BASE = 'https://agentrouter.org';
 const CLIENT_ID = 'Ov23lidtiR4LeVZvVRNL';
@@ -67,7 +67,7 @@ async function claim(account: Account, env: Env) {
 }
 
 async function api(request: Request, env: Env) {
-  if (request.headers.get('authorization') !== `Bearer ${env.ADMIN_TOKEN}`) return json({ error: 'Unauthorized' }, 401);
+  if (request.headers.get('authorization') !== `Bearer ${env.ACCESS_CODE}`) return json({ error: 'Unauthorized' }, 401);
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/api/accounts') {
     const { results } = await env.DB.prepare('SELECT id, label, enabled, last_claim_at, last_result FROM accounts ORDER BY id DESC').all();

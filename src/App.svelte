@@ -27,9 +27,9 @@
   </header>
 
   <Card.Root>
-    <Card.Header><Card.Title>Dashboard</Card.Title><Card.Description>Token hanya disimpan di browser ini.</Card.Description></Card.Header>
+    <Card.Header><Card.Title>Dashboard</Card.Title><Card.Description>Access code hanya disimpan di browser ini.</Card.Description></Card.Header>
     <Card.Content class="flex items-end gap-3 max-sm:flex-col max-sm:items-stretch">
-      <div class="flex-1 space-y-2"><Label for="token">Admin token</Label><Input id="token" type="password" bind:value={token} placeholder="ADMIN_TOKEN" /></div>
+      <div class="flex-1 space-y-2"><Label for="token">Access code</Label><Input id="token" type="password" bind:value={token} placeholder="ACCESS_CODE" /></div>
       <Button onclick={load}>Buka dashboard</Button>
     </Card.Content>
   </Card.Root>
@@ -57,7 +57,7 @@
           <div><p class="text-sm">{account.last_result || 'Belum pernah dijalankan'}</p><p class="text-xs text-muted-foreground">{account.last_claim_at ? new Date(account.last_claim_at).toLocaleString('id-ID') : ''}</p></div>
           <div class="flex gap-2"><Button size="sm" onclick={() => claim(account.id)}>Claim</Button><Button size="sm" variant="destructive" onclick={() => remove(account.id)}>Hapus</Button></div>
         </div>
-      {:else}<p class="text-sm text-muted-foreground">Masukkan admin token lalu buka dashboard.</p>{/each}
+      {:else}<p class="text-sm text-muted-foreground">Masukkan access code lalu buka dashboard.</p>{/each}
     </Card.Content>
   </Card.Root>
 </main>
