@@ -41,6 +41,14 @@ async function oauthState() {
   return body.data;
 }
 async function readSelf(page: import('@cloudflare/playwright').Page) {
+  await page.goto(`${BASE}/console`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  await page.waitForTimeout(5_000);
+  const inPage = await page.evaluate(async (url) => {
+    const response = await fetch(url, { credentials: 'include', headers: { accept: 'application/json' } });
+    return response.json().catch(() => null);
+  }, `${BASE}/api/user/self`).catch(() => null) as { success?: boolean; data?: unknown } | null;
+  if (inPage?.success && inPage.data) return inPage.data;
+
   for (let attempt = 0; attempt < 2; attempt++) {
     const response = await page.goto(`${BASE}/api/user/self`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     const text = await response?.text() || '';
@@ -77,7 +85,10 @@ async function claim(account: Account, env: Env) {
       const userId = session && sessionUserId(session.value);
       if (userId) await context.setExtraHTTPHeaders({ 'New-Api-User': userId });
       const user = await readSelf(page).catch(() => callbackBody?.data?.user || callbackBody?.data);
-      if (!user || callbackBody?.success === false) throw new Error(callbackBody?.message || 'OAuth callback did not return an authenticated user');
+      if (!user || callbackBody?.success === false) {
+        const detail = `callback=${callbackResponse?.status() || 'none'}, session=${session ? 'yes' : 'no'}`;
+        throw new Error(callbackBody?.message || `OAuth callback did not return an authenticated user (${detail})`);
+      }
       result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
     } finally { await browser.close(); }
   } catch (error) { result = `Failed: ${error instanceof Error ? error.message : String(error)}`; }
