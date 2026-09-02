@@ -86,7 +86,6 @@ async function claim(account: Account, env: Env) {
           authorize.click()
         ]);
       }
-      await page.waitForURL(/agentrouter\.org/, { timeout: 45_000 });
       const callbackBody = callbackResponse?.url().includes('/api/oauth/github')
         ? await callbackResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
         : null;
