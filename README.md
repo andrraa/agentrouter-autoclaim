@@ -7,7 +7,7 @@ Multi-account GitHub OAuth auto-claim built with Svelte, shadcn-svelte, Cloudfla
 ```bash
 npm install
 cp wrangler.example.jsonc wrangler.jsonc
-npx wrangler d1 create agentrouter-claim
+npx wrangler d1 create agentrouter-autoclaim
 # Copy the database_id into wrangler.jsonc
 npx wrangler secret put ACCESS_CODE
 openssl rand -base64 32 | npx wrangler secret put ENCRYPTION_KEY
