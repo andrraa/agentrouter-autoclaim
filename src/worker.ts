@@ -85,11 +85,17 @@ async function claim(account: Account, env: Env) {
       const userId = session && sessionUserId(session.value);
       if (userId) await context.setExtraHTTPHeaders({ 'New-Api-User': userId });
       const user = await readSelf(page).catch(() => callbackBody?.data?.user || callbackBody?.data);
-      if (!user || callbackBody?.success === false) {
-        const detail = `callback=${callbackResponse?.status() || 'none'}, session=${session ? 'yes' : 'no'}`;
-        throw new Error(callbackBody?.message || `OAuth callback did not return an authenticated user (${detail})`);
+      if (callbackBody?.success === false) throw new Error(callbackBody.message || 'OAuth callback failed');
+      if (!user) {
+        if (callbackResponse?.status() === 200 && session) {
+          result = `Success · ${account.label} · login completed (balance unavailable)`;
+        } else {
+          const detail = `callback=${callbackResponse?.status() || 'none'}, session=${session ? 'yes' : 'no'}`;
+          throw new Error(`OAuth callback did not return an authenticated user (${detail})`);
+        }
+      } else {
+        result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
       }
-      result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
     } finally { await browser.close(); }
   } catch (error) { result = `Failed: ${error instanceof Error ? error.message : String(error)}`; }
   const createdAt = new Date().toISOString();
