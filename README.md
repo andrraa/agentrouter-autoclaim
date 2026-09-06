@@ -137,7 +137,24 @@ When `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured, the worker auto
 
 ## Scheduled Execution
 
-The worker includes a scheduled cron trigger configured in `wrangler.jsonc`:
+The claim process can be scheduled either directly on Cloudflare Workers or through GitHub Actions.
+
+### 1. GitHub Actions Scheduled Runner (Recommended)
+
+To completely eliminate Cloudflare Browser Rendering rate limits (429 errors), a GitHub Actions workflow is included (`.github/workflows/claim.yml`). It executes a real Chromium instance on a Linux VM, fetches accounts from your Worker API, performs claims, and posts the results back to your Cloudflare D1 database and Telegram channel.
+
+#### Configuration
+
+In your GitHub repository (**Settings -> Secrets and variables -> Actions -> New repository secret**), configure:
+
+- `WORKER_URL`: `https://agentrouter-autoclaim.<your-subdomain>.workers.dev`
+- `ACCESS_CODE`: `<YOUR_DASHBOARD_ACCESS_CODE>`
+
+The workflow executes daily at **00:05 UTC (07:05 WIB)** and can be triggered on demand from the **Actions** tab via **Run workflow**.
+
+### 2. Cloudflare Worker Cron
+
+The worker also includes an internal cron trigger configured in `wrangler.jsonc`:
 
 ```jsonc
 "triggers": {
@@ -145,7 +162,7 @@ The worker includes a scheduled cron trigger configured in `wrangler.jsonc`:
 }
 ```
 
-The automated claim process runs daily at **00:05 UTC (07:05 WIB)**. Accounts are processed concurrently via `Promise.allSettled` to minimize execution window and resource utilization.
+Accounts are processed concurrently via `Promise.allSettled`.
 
 ---
 

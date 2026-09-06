@@ -238,6 +238,33 @@ async function claim(account: Account, env: Env) {
 async function api(request: Request, env: Env) {
   if (request.headers.get('authorization') !== `Bearer ${env.ACCESS_CODE}`) return json({ error: 'Unauthorized' }, 401);
   const url = new URL(request.url);
+  if (request.method === 'GET' && url.pathname === '/api/runner/accounts') {
+    const { results } = await env.DB.prepare('SELECT id, label, github_cookie, enabled FROM accounts WHERE enabled = 1').all<Account>();
+    const decrypted = await Promise.all(
+      results.map(async (acc) => ({
+        id: acc.id,
+        label: acc.label,
+        githubCookie: await decrypt(acc.github_cookie, env)
+      }))
+    );
+    return json(decrypted);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/runner/report') {
+    const body = await request.json<{ id?: number; result?: string }>();
+    if (!body.id || !body.result) return json({ error: 'Missing id or result' }, 400);
+    const account = await env.DB.prepare('SELECT id, label FROM accounts WHERE id = ?').bind(body.id).first<{ id: number; label: string }>();
+    if (!account) return json({ error: 'Account not found' }, 404);
+    const createdAt = new Date().toISOString();
+    const success = body.result.startsWith('Success');
+    await env.DB.batch([
+      env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(createdAt, body.result, account.id),
+      env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, body.result, createdAt)
+    ]);
+    const emoji = success ? '✅' : '❌';
+    const timeStr = new Date(createdAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    await notifyTelegram(env, `<b>${emoji} AgentRouter Claim</b>\n<b>Account:</b> ${account.label}\n<b>Status:</b> ${body.result}\n<b>Time:</b> ${timeStr} WIB`);
+    return json({ ok: true });
+  }
   if (request.method === 'GET' && url.pathname === '/api/accounts') {
     const { results } = await env.DB.prepare('SELECT id, label, enabled, last_claim_at, last_result FROM accounts ORDER BY id DESC').all();
     return json(results);
