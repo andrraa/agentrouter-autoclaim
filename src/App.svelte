@@ -126,7 +126,7 @@
       </div>
       <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); load(); }}>
         <div class="space-y-1.5">
-          <Label for="token" class="text-xs text-zinc-400">Access code</Label>
+          <Label for="token" class="text-xs font-normal text-zinc-400">Access code</Label>
           <Input
             id="token"
             type="password"
@@ -135,12 +135,12 @@
             data-lpignore="true"
             data-1p-ignore="true"
             placeholder="••••••••••••"
-            class="border-zinc-800 bg-zinc-900/50 text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {loginError ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
+            class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {loginError ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
             oninput={() => loginError = ''}
             autofocus
           />
           {#if loginError}
-            <p class="text-[11px] text-red-400">{loginError}</p>
+            <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{loginError}</p>
           {/if}
         </div>
         <Button type="submit" class="w-full bg-zinc-100 font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
@@ -231,24 +231,26 @@
     </Card.Header>
     <Card.Content>
       <form onsubmit={(e) => { e.preventDefault(); add(); }}>
-        <div class="grid gap-3 sm:grid-cols-[1fr_2.5fr_auto] items-start">
-          <div class="space-y-1">
+        <div class="grid gap-3.5 sm:grid-cols-[1fr_2.5fr_auto] sm:items-start">
+          <div class="space-y-1.5">
+            <Label for="account-label" class="text-xs font-normal text-zinc-400">Account label</Label>
             <Input
-              aria-label="Account Label"
-              placeholder="Account label"
+              id="account-label"
+              placeholder="e.g. Work, Personal"
               bind:value={form.label}
               autocomplete="off"
               class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {formErrors.label ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
               oninput={() => formErrors.label = ''}
             />
             {#if formErrors.label}
-              <p class="text-[11px] text-red-400">{formErrors.label}</p>
+              <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{formErrors.label}</p>
             {/if}
           </div>
 
-          <div class="space-y-1">
+          <div class="space-y-1.5">
+            <Label for="github-cookie" class="text-xs font-normal text-zinc-400">GitHub cookie</Label>
             <Input
-              aria-label="GitHub Cookie"
+              id="github-cookie"
               type="password"
               placeholder="user_session=...; _gh_sess=..."
               bind:value={form.githubCookie}
@@ -259,13 +261,15 @@
               oninput={() => formErrors.githubCookie = ''}
             />
             {#if formErrors.githubCookie}
-              <p class="text-[11px] text-red-400">{formErrors.githubCookie}</p>
+              <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{formErrors.githubCookie}</p>
             {/if}
           </div>
 
-          <Button type="submit" class="border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
-            Add
-          </Button>
+          <div class="sm:pt-[22px]">
+            <Button type="submit" class="w-full sm:w-auto border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
+              Add
+            </Button>
+          </div>
         </div>
       </form>
     </Card.Content>
