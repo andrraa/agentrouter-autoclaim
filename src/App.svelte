@@ -119,9 +119,9 @@
 
 {#if !authenticated}
   <div class="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
-    <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
-      <div class="mb-6 space-y-1.5">
-        <h2 class="text-lg font-semibold tracking-tight text-zinc-100">Access required</h2>
+    <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-5 sm:p-6 shadow-2xl">
+      <div class="mb-5 space-y-1.5">
+        <h2 class="text-base sm:text-lg font-semibold tracking-tight text-zinc-100">Access required</h2>
         <p class="text-xs text-zinc-400">Enter your access code to manage auto-claims.</p>
       </div>
       <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); load(); }}>
@@ -155,7 +155,7 @@
 
 {#if accountToDelete}
   <div class="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
-    <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+    <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-5 sm:p-6 shadow-2xl">
       <div class="mb-4 space-y-1.5">
         <h3 class="text-sm font-semibold tracking-tight text-zinc-100">Delete account</h3>
         <p class="text-xs text-zinc-400">
@@ -187,12 +187,12 @@
   </div>
 {/if}
 
-<main class="mx-auto min-h-screen w-full max-w-4xl space-y-6 px-4 py-12 transition-all" class:blur-sm={!authenticated} class:pointer-events-none={!authenticated}>
+<main class="mx-auto min-h-screen w-full max-w-4xl space-y-6 px-3.5 py-6 sm:px-6 sm:py-12 transition-all" class:blur-sm={!authenticated} class:pointer-events-none={!authenticated}>
   <!-- Header -->
-  <header class="flex items-center justify-between border-b border-zinc-800/80 pb-6">
+  <header class="flex flex-col gap-4 border-b border-zinc-800/80 pb-5 sm:flex-row sm:items-center sm:justify-between">
     <div class="space-y-1">
-      <div class="flex items-center gap-2">
-        <h1 class="text-xl font-semibold tracking-tight text-zinc-100">AgentRouter Claim</h1>
+      <div class="flex flex-wrap items-center gap-2">
+        <h1 class="text-lg font-semibold tracking-tight text-zinc-100 sm:text-xl">AgentRouter Claim</h1>
         <Badge variant="outline" class="border-zinc-800 text-[10px] text-zinc-400 font-normal">
           Cron 00:05 UTC
         </Badge>
@@ -201,11 +201,11 @@
     </div>
 
     {#if authenticated}
-      <div class="flex items-center gap-2">
-        <Button variant="outline" size="sm" class="border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={refreshing} onclick={load}>
+      <div class="flex items-center gap-2 self-end sm:self-auto">
+        <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={refreshing} onclick={load}>
           {refreshing ? 'Refreshing…' : 'Refresh'}
         </Button>
-        <Button variant="ghost" size="sm" class="text-xs text-zinc-400 hover:text-zinc-100" onclick={logout}>
+        <Button variant="ghost" size="sm" class="h-8 text-xs text-zinc-400 hover:text-zinc-100" onclick={logout}>
           Sign out
         </Button>
       </div>
@@ -214,24 +214,24 @@
 
   <!-- Notice / Message Banner -->
   {#if message}
-    <div class="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-900/40 px-3.5 py-2.5 text-xs text-zinc-300">
-      <div class="flex items-center gap-2">
-        <span class="inline-block size-1.5 rounded-full {message.startsWith('Success') ? 'bg-zinc-100' : 'bg-zinc-500'}"></span>
-        <span>{message}</span>
+    <div class="flex items-start justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-900/40 px-3.5 py-2.5 text-xs text-zinc-300 sm:items-center">
+      <div class="flex items-start gap-2 sm:items-center min-w-0">
+        <span class="mt-1 inline-block size-1.5 shrink-0 rounded-full sm:mt-0 {message.startsWith('Success') ? 'bg-zinc-100' : 'bg-zinc-500'}"></span>
+        <span class="break-words">{message}</span>
       </div>
-      <button class="text-zinc-500 hover:text-zinc-300 text-xs" onclick={() => message = ''}>Dismiss</button>
+      <button class="shrink-0 text-zinc-500 hover:text-zinc-300 text-xs" onclick={() => message = ''}>Dismiss</button>
     </div>
   {/if}
 
   <!-- Add Account Card -->
   <Card.Root class="border-zinc-800 bg-zinc-950/60">
-    <Card.Header class="pb-4">
+    <Card.Header class="px-4 py-4 sm:px-6">
       <Card.Title class="text-sm font-medium text-zinc-200">Add Account</Card.Title>
       <Card.Description class="text-xs text-zinc-500">
         Paste the full cookie header from any authenticated <code class="rounded bg-zinc-900 px-1 py-0.5 text-zinc-400">github.com</code> request.
       </Card.Description>
     </Card.Header>
-    <Card.Content>
+    <Card.Content class="px-4 pb-4 sm:px-6 sm:pb-6">
       <form onsubmit={(e) => { e.preventDefault(); add(); }}>
         <div class="grid gap-3.5 sm:grid-cols-[1fr_2.5fr_auto] sm:items-start">
           <div class="space-y-1.5">
@@ -271,7 +271,7 @@
             {/if}
           </div>
 
-          <div class="sm:pt-[22px]">
+          <div class="pt-1 sm:pt-[22px]">
             <Button type="submit" class="w-full sm:w-auto border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
               Add
             </Button>
@@ -283,7 +283,7 @@
 
   <!-- Accounts List -->
   <Card.Root class="border-zinc-800 bg-zinc-950/60">
-    <Card.Header class="flex flex-row items-center justify-between pb-3">
+    <Card.Header class="flex flex-row items-center justify-between px-4 py-3.5 sm:px-6">
       <div>
         <Card.Title class="text-sm font-medium text-zinc-200">Accounts</Card.Title>
         <Card.Description class="text-xs text-zinc-500">Active accounts scheduled for daily claim</Card.Description>
@@ -295,15 +295,15 @@
     <Card.Content class="p-0">
       <div class="divide-y divide-zinc-850">
         {#each accounts as account}
-          <div class="flex items-center justify-between px-6 py-3.5 transition-colors hover:bg-zinc-900/20">
-            <div class="space-y-0.5">
-              <p class="text-sm font-medium text-zinc-200">{account.label}</p>
+          <div class="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-zinc-900/20 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-3.5">
+            <div class="space-y-0.5 min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-zinc-200">{account.label}</p>
               <p class="text-[11px] text-zinc-500 font-mono">
                 {account.last_claim_at ? `Last run: ${new Date(account.last_claim_at).toLocaleString('en-US')}` : 'Never executed'}
               </p>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex items-center justify-between gap-2.5 pt-2 border-t border-zinc-900 sm:border-t-0 sm:pt-0 sm:justify-end">
               <Badge
                 variant="outline"
                 class="text-[11px] font-normal border-zinc-800 {account.last_result?.startsWith('Success') ? 'border-zinc-600 text-zinc-200' : account.last_result ? 'border-red-900/60 text-red-400' : 'text-zinc-500'}"
@@ -334,7 +334,7 @@
             </div>
           </div>
         {:else}
-          <div class="px-6 py-8 text-center text-xs text-zinc-500">
+          <div class="px-4 py-8 sm:px-6 text-center text-xs text-zinc-500">
             No accounts configured yet.
           </div>
         {/each}
@@ -344,32 +344,32 @@
 
   <!-- Claim History -->
   <Card.Root class="border-zinc-800 bg-zinc-950/60">
-    <Card.Header class="pb-3">
+    <Card.Header class="px-4 py-3.5 sm:px-6">
       <Card.Title class="text-sm font-medium text-zinc-200">Execution History</Card.Title>
       <Card.Description class="text-xs text-zinc-500">Latest execution log per account</Card.Description>
     </Card.Header>
     <Card.Content class="p-0">
       <div class="divide-y divide-zinc-850">
         {#each history as item}
-          <div class="flex items-center justify-between px-6 py-3 text-xs transition-colors hover:bg-zinc-900/20">
-            <div class="flex items-center gap-3">
+          <div class="flex flex-col gap-2 px-4 py-3 text-xs transition-colors hover:bg-zinc-900/20 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div class="flex items-start gap-2.5 min-w-0 sm:items-center">
               <Badge
                 variant="outline"
-                class="text-[10px] font-mono border-zinc-800 {item.success ? 'border-zinc-700 text-zinc-300' : 'border-red-900/60 text-red-400'}"
+                class="shrink-0 text-[10px] font-mono border-zinc-800 {item.success ? 'border-zinc-700 text-zinc-300' : 'border-red-900/60 text-red-400'}"
               >
                 {item.success ? 'OK' : 'ERR'}
               </Badge>
-              <div>
+              <div class="min-w-0 flex-1">
                 <span class="font-medium text-zinc-300">{item.label}</span>
-                <span class="ml-2 text-zinc-500 font-mono text-[11px]">{item.result}</span>
+                <span class="ml-2 block sm:inline break-all text-zinc-500 font-mono text-[11px]">{item.result}</span>
               </div>
             </div>
-            <time class="font-mono text-[11px] text-zinc-600">
+            <time class="shrink-0 font-mono text-[11px] text-zinc-600 self-end sm:self-auto">
               {new Date(item.created_at).toLocaleString('en-US')}
             </time>
           </div>
         {:else}
-          <div class="px-6 py-8 text-center text-xs text-zinc-500">
+          <div class="px-4 py-8 sm:px-6 text-center text-xs text-zinc-500">
             No history recorded yet.
           </div>
         {/each}
