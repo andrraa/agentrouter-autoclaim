@@ -111,10 +111,11 @@ async function pureHttpClaim(rawCookie: string, label: string) {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${BASE}/login`, Origin: BASE }
   });
 
-  const body = await cbRes.json<{ success?: boolean; message?: string; data?: { user?: { display_name?: string; username?: string; quota?: number } } }>().catch(() => null);
-  if (body?.success) {
-    const u = body.data?.user;
-    return `Success · ${u?.display_name || u?.username || label} · balance $${((Number(u?.quota) || 0) / 500000).toFixed(2)}`;
+  const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
+  if (body?.success && body.data) {
+    const u = body.data.user || body.data;
+    const quota = typeof u.quota === 'number' ? u.quota : Number(u.quota) || 0;
+    return `Success · ${u.display_name || u.username || label} · balance $${(quota / 500000).toFixed(2)}`;
   }
   if (cbRes.status === 200 && !body?.message) {
     return `Success · ${label} · login completed`;
