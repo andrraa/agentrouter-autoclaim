@@ -8,10 +8,12 @@
   type Account = { id: number; label: string; enabled: number; last_claim_at?: string; last_result?: string };
   type History = { id: number; label: string; success: number; result: string; created_at: string };
 
-  let token = localStorage.getItem('access-code') || '';
+  let token = '';
+  let loginError = '';
   let accounts: Account[] = [];
   let history: History[] = [];
   let form = { label: '', githubCookie: '' };
+  let formErrors = { label: '', githubCookie: '' };
   let message = '';
   let authenticated = false;
   let claimingId: number | null = null;
@@ -35,26 +37,46 @@
 
   async function load() {
     refreshing = true;
+    loginError = '';
     try {
       [accounts, history] = await Promise.all([call('/api/accounts'), call('/api/history')]);
-      localStorage.setItem('access-code', token);
       authenticated = true;
       message = '';
     } catch (e) {
-      localStorage.removeItem('access-code');
-      message = (e as Error).message;
+      loginError = (e as Error).message;
     } finally {
       refreshing = false;
     }
   }
 
   async function add() {
+    formErrors = { label: '', githubCookie: '' };
+    let hasError = false;
+    if (!form.label.trim()) {
+      formErrors.label = 'Account label is required.';
+      hasError = true;
+    }
+    if (!form.githubCookie.trim()) {
+      formErrors.githubCookie = 'GitHub cookie is required.';
+      hasError = true;
+    } else if (!form.githubCookie.includes('=')) {
+      formErrors.githubCookie = 'Cookie must be valid key=value pairs.';
+      hasError = true;
+    }
+    if (hasError) return;
+
     try {
       await call('/api/accounts', { method: 'POST', body: JSON.stringify(form) });
       form = { label: '', githubCookie: '' };
+      formErrors = { label: '', githubCookie: '' };
       await load();
     } catch (e) {
-      message = (e as Error).message;
+      const err = (e as Error).message;
+      if (err.toLowerCase().includes('label')) {
+        formErrors.label = err;
+      } else {
+        formErrors.githubCookie = err;
+      }
     }
   }
 
@@ -87,11 +109,11 @@
   }
 
   function logout() {
-    localStorage.removeItem('access-code');
     token = '';
     authenticated = false;
     accounts = [];
     history = [];
+    loginError = '';
   }
 </script>
 
@@ -103,21 +125,24 @@
         <p class="text-xs text-zinc-400">Enter your access code to manage auto-claims.</p>
       </div>
       <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); load(); }}>
-        <div class="space-y-2">
+        <div class="space-y-1.5">
           <Label for="token" class="text-xs text-zinc-400">Access code</Label>
           <Input
             id="token"
             type="password"
             bind:value={token}
-            autocomplete="current-password"
+            autocomplete="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
             placeholder="••••••••••••"
-            class="border-zinc-800 bg-zinc-900/50 text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400"
+            class="border-zinc-800 bg-zinc-900/50 text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {loginError ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
+            oninput={() => loginError = ''}
             autofocus
           />
+          {#if loginError}
+            <p class="text-[11px] text-red-400">{loginError}</p>
+          {/if}
         </div>
-        {#if message}
-          <p class="text-xs text-red-400">{message}</p>
-        {/if}
         <Button type="submit" class="w-full bg-zinc-100 font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
           Sign In
         </Button>
@@ -205,25 +230,43 @@
       </Card.Description>
     </Card.Header>
     <Card.Content>
-      <form class="grid gap-3 sm:grid-cols-[1fr_2.5fr_auto]" onsubmit={(e) => { e.preventDefault(); add(); }}>
-        <Input
-          aria-label="Account Label"
-          placeholder="Account label"
-          bind:value={form.label}
-          class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400"
-          required
-        />
-        <Input
-          aria-label="GitHub Cookie"
-          type="password"
-          placeholder="user_session=...; _gh_sess=..."
-          bind:value={form.githubCookie}
-          class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400"
-          required
-        />
-        <Button type="submit" class="border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
-          Add
-        </Button>
+      <form onsubmit={(e) => { e.preventDefault(); add(); }}>
+        <div class="grid gap-3 sm:grid-cols-[1fr_2.5fr_auto] items-start">
+          <div class="space-y-1">
+            <Input
+              aria-label="Account Label"
+              placeholder="Account label"
+              bind:value={form.label}
+              autocomplete="off"
+              class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {formErrors.label ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
+              oninput={() => formErrors.label = ''}
+            />
+            {#if formErrors.label}
+              <p class="text-[11px] text-red-400">{formErrors.label}</p>
+            {/if}
+          </div>
+
+          <div class="space-y-1">
+            <Input
+              aria-label="GitHub Cookie"
+              type="password"
+              placeholder="user_session=...; _gh_sess=..."
+              bind:value={form.githubCookie}
+              autocomplete="off"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {formErrors.githubCookie ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
+              oninput={() => formErrors.githubCookie = ''}
+            />
+            {#if formErrors.githubCookie}
+              <p class="text-[11px] text-red-400">{formErrors.githubCookie}</p>
+            {/if}
+          </div>
+
+          <Button type="submit" class="border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
+            Add
+          </Button>
+        </div>
       </form>
     </Card.Content>
   </Card.Root>
