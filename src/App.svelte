@@ -126,7 +126,9 @@
       </div>
       <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); load(); }}>
         <div class="space-y-1.5">
-          <Label for="token" class="text-xs font-normal text-zinc-400">Access code</Label>
+          <Label for="token" class="text-xs font-normal text-zinc-400">
+            Access code <span class="text-red-400/80 ml-0.5">*</span>
+          </Label>
           <Input
             id="token"
             type="password"
@@ -233,7 +235,9 @@
       <form onsubmit={(e) => { e.preventDefault(); add(); }}>
         <div class="grid gap-3.5 sm:grid-cols-[1fr_2.5fr_auto] sm:items-start">
           <div class="space-y-1.5">
-            <Label for="account-label" class="text-xs font-normal text-zinc-400">Account label</Label>
+            <Label for="account-label" class="text-xs font-normal text-zinc-400">
+              Account label <span class="text-red-400/80 ml-0.5">*</span>
+            </Label>
             <Input
               id="account-label"
               placeholder="e.g. Work, Personal"
@@ -248,7 +252,9 @@
           </div>
 
           <div class="space-y-1.5">
-            <Label for="github-cookie" class="text-xs font-normal text-zinc-400">GitHub cookie</Label>
+            <Label for="github-cookie" class="text-xs font-normal text-zinc-400">
+              GitHub cookie <span class="text-red-400/80 ml-0.5">*</span>
+            </Label>
             <Input
               id="github-cookie"
               type="password"
