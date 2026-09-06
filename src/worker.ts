@@ -1,6 +1,14 @@
 import { launch, type BrowserWorker } from '@cloudflare/playwright';
 
-interface Env { DB: D1Database; ASSETS: Fetcher; BROWSER: BrowserWorker; ACCESS_CODE: string; ENCRYPTION_KEY: string }
+interface Env {
+  DB: D1Database;
+  ASSETS: Fetcher;
+  BROWSER: BrowserWorker;
+  ACCESS_CODE: string;
+  ENCRYPTION_KEY: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+}
 type Account = { id: number; label: string; github_cookie: string; enabled: number };
 const BASE = 'https://agentrouter.org';
 const CLIENT_ID = 'Ov23lidtiR4LeVZvVRNL';
@@ -138,6 +146,24 @@ async function pureHttpClaim(rawCookie: string, label: string) {
   throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
 }
 
+async function notifyTelegram(env: Env, text: string) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      }),
+    });
+  } catch (err) {
+    console.error('[Telegram notification error]', err);
+  }
+}
+
 async function claim(account: Account, env: Env) {
   let result = '';
   const rawCookie = await decrypt(account.github_cookie, env);
@@ -194,6 +220,9 @@ async function claim(account: Account, env: Env) {
     env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(createdAt, result, account.id),
     env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, result, createdAt)
   ]);
+  const emoji = success ? '✅' : '❌';
+  const timeStr = new Date(createdAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+  await notifyTelegram(env, `<b>${emoji} AgentRouter Claim</b>\n<b>Account:</b> ${account.label}\n<b>Status:</b> ${result}\n<b>Time:</b> ${timeStr} WIB`);
   return { ok: success, result };
 }
 

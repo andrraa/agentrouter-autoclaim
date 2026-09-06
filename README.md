@@ -17,6 +17,15 @@ npm run deploy
 
 Set `ACCESS_CODE` through Cloudflare Dashboard → Worker → Settings → Variables and Secrets. It is used to sign in to the application dashboard.
 
+### Telegram Notifications (Optional)
+
+Add the following environment secrets in Cloudflare Dashboard (or via Wrangler) to receive instant status updates for every manual and scheduled claim:
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
+```
+
 In the application dashboard, add a label and the complete `cookie` header from a request to `github.com` in DevTools → Network. It must include at least `user_session` and `_gh_sess`. Cookies are encrypted in D1 and decrypted only while Browser Rendering runs OAuth.
 
 > GitHub cookies are sensitive credentials. If one leaks, revoke the session through GitHub Settings → Sessions.
