@@ -138,10 +138,11 @@ async function pureHttpClaim(rawCookie: string, label: string) {
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
   if (body?.success && body.data) {
     const u = body.data.user || body.data;
-    return `Success · ${u.display_name || u.username || label}`;
+    const accountName = u.display_name || u.username || label;
+    return `Success (HTTP) · ${accountName}`;
   }
   if (cbRes.status === 200 && !body?.message) {
-    return `Success · ${label}`;
+    return `Success (HTTP) · ${label}`;
   }
   throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
 }
@@ -207,13 +208,14 @@ async function claim(account: Account, env: Env) {
         if (callbackBody?.success === false) throw new Error(callbackBody.message || 'OAuth callback failed');
         if (!user) {
           if (callbackResponse?.status() === 200 && session) {
-            result = `Success · ${account.label}`;
+            result = `Success (Browser) · ${account.label}`;
           } else {
             const detail = `callback=${callbackResponse?.status() || 'none'}, session=${session ? 'yes' : 'no'}`;
             throw new Error(`OAuth callback did not return an authenticated user (${detail})`);
           }
         } else {
-          result = `Success · ${user.display_name || user.username || account.label}`;
+          const accountName = user.display_name || user.username || account.label;
+          result = `Success (Browser) · ${accountName}`;
         }
       } finally { await browser.close(); }
     } catch (error) {
