@@ -20,6 +20,48 @@
   let refreshing = false;
   let accountToDelete: Account | null = null;
   let deleting = false;
+  let accountToEdit: Account | null = null;
+  let editForm = { label: '', githubCookie: '' };
+  let editErrors = { label: '', githubCookie: '' };
+  let savingEdit = false;
+
+  function openEdit(account: Account) {
+    accountToEdit = account;
+    editForm = { label: account.label, githubCookie: '' };
+    editErrors = { label: '', githubCookie: '' };
+  }
+
+  async function saveEdit() {
+    if (!accountToEdit) return;
+    editErrors = { label: '', githubCookie: '' };
+    if (!editForm.label.trim()) {
+      editErrors.label = 'Account label is required.';
+      return;
+    }
+    if (editForm.githubCookie.trim() && !editForm.githubCookie.includes('=')) {
+      editErrors.githubCookie = 'Cookie must be valid key=value pairs.';
+      return;
+    }
+
+    savingEdit = true;
+    try {
+      await call(`/api/accounts/${accountToEdit.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(editForm),
+      });
+      accountToEdit = null;
+      await load();
+    } catch (e) {
+      const err = (e as Error).message;
+      if (err.toLowerCase().includes('cookie')) {
+        editErrors.githubCookie = err;
+      } else {
+        editErrors.label = err;
+      }
+    } finally {
+      savingEdit = false;
+    }
+  }
 
   async function call(path: string, options: RequestInit = {}) {
     const response = await fetch(path, {
@@ -148,6 +190,75 @@
         <Button type="submit" class="w-full bg-zinc-100 font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
           Sign In
         </Button>
+      </form>
+    </div>
+  </div>
+{/if}
+
+{#if accountToEdit}
+  <div class="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-5 sm:p-6 shadow-2xl">
+      <div class="mb-5 space-y-1.5">
+        <h3 class="text-base sm:text-lg font-semibold tracking-tight text-zinc-100">Edit account</h3>
+        <p class="text-xs text-zinc-400">Update label or replace cookie (leave empty to keep existing).</p>
+      </div>
+      <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); saveEdit(); }}>
+        <div class="space-y-1.5">
+          <Label for="edit-label" class="text-xs font-normal text-zinc-400">
+            Account label <span class="text-red-400/80 ml-0.5">*</span>
+          </Label>
+          <Input
+            id="edit-label"
+            placeholder="Account label"
+            bind:value={editForm.label}
+            autocomplete="off"
+            class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {editErrors.label ? 'border-red-500/80' : ''}"
+            oninput={() => editErrors.label = ''}
+            autofocus
+          />
+          {#if editErrors.label}
+            <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{editErrors.label}</p>
+          {/if}
+        </div>
+
+        <div class="space-y-1.5">
+          <Label for="edit-cookie" class="text-xs font-normal text-zinc-400">GitHub cookie</Label>
+          <Input
+            id="edit-cookie"
+            type="password"
+            placeholder="Leave empty to keep existing cookie"
+            bind:value={editForm.githubCookie}
+            autocomplete="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {editErrors.githubCookie ? 'border-red-500/80' : ''}"
+            oninput={() => editErrors.githubCookie = ''}
+          />
+          {#if editErrors.githubCookie}
+            <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{editErrors.githubCookie}</p>
+          {/if}
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            class="border-zinc-800 text-xs text-zinc-300 hover:bg-zinc-900"
+            disabled={savingEdit}
+            onclick={() => accountToEdit = null}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            class="border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900"
+            disabled={savingEdit}
+          >
+            {savingEdit ? 'Saving…' : 'Save changes'}
+          </Button>
+        </div>
       </form>
     </div>
   </div>
@@ -324,11 +435,31 @@
                 <Button
                   size="sm"
                   variant="ghost"
-                  class="h-7 px-2 text-xs text-zinc-500 hover:text-red-400"
+                  class="h-7 w-7 p-0 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900"
                   disabled={claimingId !== null}
+                  title="Edit account"
+                  aria-label="Edit account"
+                  onclick={() => openEdit(account)}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"/>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                  </svg>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="h-7 w-7 p-0 text-zinc-500 hover:text-red-400 hover:bg-zinc-900"
+                  disabled={claimingId !== null}
+                  title="Delete account"
+                  aria-label="Delete account"
                   onclick={() => accountToDelete = account}
                 >
-                  Delete
+                  <svg xmlns="http://www.w3.org/2000/svg" class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"/>
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                  </svg>
                 </Button>
               </div>
             </div>

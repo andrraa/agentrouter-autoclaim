@@ -286,6 +286,18 @@ async function api(request: Request, env: Env) {
     return json({ ok: true }, 201);
   }
   const match = url.pathname.match(/^\/api\/accounts\/(\d+)(?:\/(claim))?$/);
+  if (match && (request.method === 'PUT' || request.method === 'PATCH') && !match[2]) {
+    const body = await request.json<{ label?: string; githubCookie?: string }>();
+    if (!body.label?.trim()) return json({ error: 'Account label is required' }, 400);
+    if (body.githubCookie?.trim()) {
+      if (!body.githubCookie.includes('=')) return json({ error: 'GitHub cookie must contain valid key=value pairs' }, 400);
+      const encrypted = await encrypt(body.githubCookie.trim(), env);
+      await env.DB.prepare('UPDATE accounts SET label = ?, github_cookie = ? WHERE id = ?').bind(body.label.trim(), encrypted, match[1]).run();
+    } else {
+      await env.DB.prepare('UPDATE accounts SET label = ? WHERE id = ?').bind(body.label.trim(), match[1]).run();
+    }
+    return json({ ok: true });
+  }
   if (match && request.method === 'DELETE' && !match[2]) { await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(match[1]).run(); return json({ ok: true }); }
   if (match && request.method === 'POST' && match[2]) {
     const account = await env.DB.prepare('SELECT * FROM accounts WHERE id = ?').bind(match[1]).first<Account>();
