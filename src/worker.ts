@@ -51,10 +51,26 @@ async function waitForSession(context: import('@cloudflare/playwright').BrowserC
   }
   return undefined;
 }
-async function oauthState() {
-  const response = await fetch(`${BASE}/api/oauth/state`, { headers: { accept: 'application/json', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT } });
-  const body = await response.json<{ success?: boolean; data?: string }>();
-  if (!body.success || !body.data) throw new Error('Failed to get OAuth state');
+async function oauthState(page?: import('@cloudflare/playwright').Page) {
+  if (page) {
+    const fromPage = await page.evaluate(async (url) => {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      return res.json().catch(() => null);
+    }, `${BASE}/api/oauth/state`).catch(() => null) as { success?: boolean; data?: string } | null;
+    if (fromPage?.success && fromPage.data) return fromPage.data;
+  }
+
+  const response = await fetch(`${BASE}/api/oauth/state`, {
+    headers: { accept: 'application/json, text/plain, */*', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT }
+  });
+  const text = await response.text();
+  let body: { success?: boolean; data?: string; message?: string } | null = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error('AgentRouter OAuth state returned HTML (WAF block)');
+  }
+  if (!body?.success || !body.data) throw new Error(body?.message || 'Failed to get OAuth state');
   return body.data;
 }
 async function readSelf(page: import('@cloudflare/playwright').Page) {
@@ -130,12 +146,13 @@ async function claim(account: Account, env: Env) {
   } catch (httpError) {
     console.log(`[Pure HTTP fallback to browser] ${httpError instanceof Error ? httpError.message : String(httpError)}`);
     try {
-      const state = await oauthState();
       const browser = await launch(env.BROWSER);
       try {
         const context = await browser.newContext({ userAgent: USER_AGENT });
         await addGithubCookies(context, rawCookie);
         const page = await context.newPage();
+        await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+        const state = await oauthState(page);
         await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
         if (await page.locator('#login_field').count()) throw new Error('GitHub cookie is invalid or expired');
         const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
