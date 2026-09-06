@@ -1,6 +1,6 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 
-const BASE = 'https://agentrouter.org';
+const CANDIDATE_URLS = ['https://agentrouter.org', 'https://ps.air-outer.com'];
 const CLIENT_ID = 'Ov23lidtiR4LeVZvVRNL';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
@@ -32,32 +32,30 @@ async function addGithubCookies(context: BrowserContext, header: string) {
   }
 }
 
-async function getInPageOAuthState(page: Page): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      const res = await page.evaluate(async (url) => {
-        const r = await fetch(url, { headers: { accept: 'application/json, text/plain, */*' } });
-        return r.json().catch(() => null);
-      }, `${BASE}/api/oauth/state`) as { success?: boolean; data?: string } | null;
-
-      if (res?.success && res.data) return String(res.data);
-    } catch { /* wait for WAF challenge to settle */ }
-    await page.waitForTimeout(2000);
-  }
-  throw new Error('Failed to retrieve OAuth state from AgentRouter page context');
+async function fetchOAuthState(baseUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${baseUrl}/api/oauth/state`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json, text/plain, */*',
+        Referer: `${baseUrl}/login`,
+        Origin: baseUrl,
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+      },
+    });
+    const text = await res.text();
+    const json = JSON.parse(text);
+    if (json && json.success && json.data) return String(json.data);
+  } catch { /* WAF block on direct fetch */ }
+  return null;
 }
 
-async function pureHttpClaim(rawCookie: string, label: string) {
-  const response = await fetch(`${BASE}/api/oauth/state`, {
-    headers: { accept: 'application/json, text/plain, */*', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT }
-  });
-  const text = await response.text();
-  let stateRes: { success?: boolean; data?: string } | null = null;
-  try { stateRes = JSON.parse(text); } catch {
-    throw new Error('Pure HTTP state blocked by WAF');
-  }
-  if (!stateRes?.success || !stateRes.data) throw new Error('Failed to obtain state via pure HTTP');
-  const state = stateRes.data;
+async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string) {
+  const state = await fetchOAuthState(baseUrl);
+  if (!state) throw new Error(`Failed to obtain OAuth state from ${baseUrl}`);
 
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
   const ghRes = await fetch(authUrl, {
@@ -89,9 +87,9 @@ async function pureHttpClaim(rawCookie: string, label: string) {
 
   if (!code) throw new Error('Failed to obtain OAuth authorization code from GitHub');
 
-  const cbRes = await fetch(`${BASE}/api/oauth/github?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`, {
+  const cbRes = await fetch(`${baseUrl}/api/oauth/github?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`, {
     method: 'GET',
-    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${BASE}/login`, Origin: BASE }
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${baseUrl}/login`, Origin: baseUrl }
   });
 
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
@@ -105,19 +103,50 @@ async function pureHttpClaim(rawCookie: string, label: string) {
   throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
 }
 
-async function browserClaim(rawCookie: string, label: string) {
-  const browser = await chromium.launch({ headless: true });
+async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox']
+  });
+
   try {
-    const context = await browser.newContext({ userAgent: USER_AGENT });
+    const context = await browser.newContext({
+      userAgent: USER_AGENT,
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US',
+      timezoneId: 'Asia/Jakarta'
+    });
+
+    // Stealth: bypass navigator.webdriver detection
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
+
     await addGithubCookies(context, rawCookie);
     const page = await context.newPage();
 
-    // 1. Open AgentRouter login to allow WAF challenge to execute
-    await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    // 1. Visit baseUrl/login to execute WAF challenge
+    await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     await page.waitForTimeout(3000);
 
-    // 2. Fetch OAuth state from page context
-    const state = await getInPageOAuthState(page);
+    // 2. Fetch state inside browser page context (WAF cookies already set)
+    let state: string | null = null;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const json = await page.evaluate(async (url) => {
+          const r = await fetch(url, { headers: { accept: 'application/json, text/plain, */*' } });
+          return r.json().catch(() => null);
+        }, `${baseUrl}/api/oauth/state`) as { success?: boolean; data?: string } | null;
+
+        if (json?.success && json.data) {
+          state = String(json.data);
+          break;
+        }
+      } catch {}
+      await page.waitForTimeout(2000);
+    }
+
+    if (!state) throw new Error(`Could not obtain OAuth state from ${baseUrl}`);
 
     // 3. Visit GitHub to ensure session is primed
     await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
@@ -127,21 +156,21 @@ async function browserClaim(rawCookie: string, label: string) {
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
     await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
 
-    // 5. Click Authorize if consent screen is shown
+    // 5. Click Authorize if consent button is displayed
     const authorize = page.getByRole('button', { name: /authorize/i }).first();
     if (await authorize.isVisible().catch(() => false)) {
       await authorize.click();
     }
 
     // 6. Wait for redirect back to AgentRouter
-    await page.waitForURL(/agentrouter\.org/, { timeout: 45_000 });
+    await page.waitForURL(/(agentrouter\.org|air-outer\.com)/, { timeout: 45_000 });
     await page.waitForTimeout(3000);
 
     // 7. Get user data from console
     const userRes = await page.evaluate(async (url) => {
       const res = await fetch(url, { headers: { accept: 'application/json' } });
       return res.json().catch(() => null);
-    }, `${BASE}/api/user/self`).catch(() => null) as { success?: boolean; data?: Record<string, any> } | null;
+    }, `${baseUrl}/api/user/self`).catch(() => null) as { success?: boolean; data?: Record<string, any> } | null;
 
     if (userRes?.success && userRes.data) {
       const u = userRes.data;
@@ -152,6 +181,28 @@ async function browserClaim(rawCookie: string, label: string) {
   } finally {
     await browser.close();
   }
+}
+
+async function claimAccount(rawCookie: string, label: string): Promise<string> {
+  let lastErr = '';
+
+  for (const baseUrl of CANDIDATE_URLS) {
+    // 1. Try Pure HTTP first
+    try {
+      return await pureHttpClaim(baseUrl, rawCookie, label);
+    } catch (httpErr) {
+      lastErr = httpErr instanceof Error ? httpErr.message : String(httpErr);
+    }
+
+    // 2. Fallback to Stealth Chromium Playwright
+    try {
+      return await browserClaim(baseUrl, rawCookie, label);
+    } catch (browserErr) {
+      lastErr = browserErr instanceof Error ? browserErr.message : String(browserErr);
+    }
+  }
+
+  throw new Error(lastErr || 'All candidate endpoints failed');
 }
 
 async function run() {
@@ -171,17 +222,11 @@ async function run() {
     console.log(`Processing [${acc.label}]…`);
     let result = '';
     try {
-      result = await pureHttpClaim(acc.githubCookie, acc.label);
+      result = await claimAccount(acc.githubCookie, acc.label);
       console.log(`  -> ${result}`);
-    } catch (httpErr) {
-      console.log(`  -> Pure HTTP failed (${httpErr instanceof Error ? httpErr.message : String(httpErr)}), launching Playwright browser…`);
-      try {
-        result = await browserClaim(acc.githubCookie, acc.label);
-        console.log(`  -> ${result}`);
-      } catch (browserErr) {
-        result = `Failed: ${browserErr instanceof Error ? browserErr.message : String(browserErr)}`;
-        console.error(`  -> ${result}`);
-      }
+    } catch (err) {
+      result = `Failed: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(`  -> ${result}`);
     }
 
     // Report back to worker
