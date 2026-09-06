@@ -154,30 +154,47 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
 
     // 4. Navigate to GitHub OAuth authorize
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
-    await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    let cbResponse = await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
 
     // 5. Click Authorize if consent button is displayed
     const authorize = page.getByRole('button', { name: /authorize/i }).first();
     if (await authorize.isVisible().catch(() => false)) {
-      await authorize.click();
+      [cbResponse] = await Promise.all([
+        page.waitForResponse((r) => r.url().includes('/api/oauth/github'), { timeout: 45_000 }).catch(() => null),
+        authorize.click()
+      ]);
     }
 
-    // 6. Wait for redirect back to AgentRouter
-    await page.waitForURL(/(agentrouter\.org|air-outer\.com)/, { timeout: 45_000 });
     await page.waitForTimeout(3000);
 
-    // 7. Get user data from console
-    const userRes = await page.evaluate(async (url) => {
-      const res = await fetch(url, { headers: { accept: 'application/json' } });
-      return res.json().catch(() => null);
-    }, `${baseUrl}/api/user/self`).catch(() => null) as { success?: boolean; data?: Record<string, any> } | null;
+    const callbackBody = cbResponse?.url().includes('/api/oauth/github')
+      ? await cbResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
+      : null;
 
-    if (userRes?.success && userRes.data) {
-      const u = userRes.data;
+    if (callbackBody?.success && callbackBody.data) {
+      const u = callbackBody.data.user || callbackBody.data;
       return `Success (GH Runner) · ${u.display_name || u.username || label}`;
     }
 
-    return `Success (GH Runner) · ${label}`;
+    // 6. Check if session cookie exists on baseUrl
+    const cookies = await context.cookies(new URL(baseUrl).origin);
+    const hasSession = cookies.some((c) => c.name === 'session');
+
+    if (hasSession || cbResponse?.status() === 200) {
+      const userRes = await page.evaluate(async (url) => {
+        const res = await fetch(url, { headers: { accept: 'application/json' } });
+        return res.json().catch(() => null);
+      }, `${baseUrl}/api/user/self`).catch(() => null) as { success?: boolean; data?: Record<string, any> } | null;
+
+      if (userRes?.success && userRes.data) {
+        const u = userRes.data;
+        return `Success (GH Runner) · ${u.display_name || u.username || label}`;
+      }
+
+      return `Success (GH Runner) · ${label}`;
+    }
+
+    throw new Error(callbackBody?.message || 'OAuth callback failed');
   } finally {
     await browser.close();
   }
