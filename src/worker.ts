@@ -147,20 +147,27 @@ async function pureHttpClaim(rawCookie: string, label: string) {
 }
 
 async function notifyTelegram(env: Env, text: string) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return { ok: false, error: 'Telegram credentials missing' };
   try {
-    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        chat_id: env.TELEGRAM_CHAT_ID,
+        chat_id: env.TELEGRAM_CHAT_ID.trim(),
         text,
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),
     });
+    const body = await res.json<{ ok?: boolean; description?: string }>().catch(() => null);
+    if (!res.ok || !body?.ok) {
+      console.error('[Telegram API error]', res.status, body);
+      return { ok: false, error: body?.description || `HTTP ${res.status}` };
+    }
+    return { ok: true, data: body };
   } catch (err) {
     console.error('[Telegram notification error]', err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -232,6 +239,10 @@ async function api(request: Request, env: Env) {
   if (request.method === 'GET' && url.pathname === '/api/accounts') {
     const { results } = await env.DB.prepare('SELECT id, label, enabled, last_claim_at, last_result FROM accounts ORDER BY id DESC').all();
     return json(results);
+  }
+    if (request.method === 'POST' && url.pathname === '/api/telegram/test') {
+    const res = await notifyTelegram(env, '<b>AgentRouter Test Notification</b>\nTelegram integration is working!');
+    return json(res);
   }
   if (request.method === 'GET' && url.pathname === '/api/history') {
     const { results } = await env.DB.prepare(
