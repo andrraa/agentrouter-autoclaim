@@ -74,48 +74,102 @@ async function readSelf(page: import('@cloudflare/playwright').Page) {
   }
   throw new Error('AgentRouter self API was blocked by the WAF');
 }
+async function pureHttpClaim(rawCookie: string, label: string) {
+  const state = await oauthState();
+  const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
+  const ghRes = await fetch(authUrl, {
+    method: 'GET',
+    headers: { 'User-Agent': USER_AGENT, Cookie: rawCookie, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    redirect: 'manual'
+  });
+
+  let code: string | null = null;
+  const loc = ghRes.headers.get('location') || '';
+  if ((ghRes.status === 301 || ghRes.status === 302) && loc) {
+    if (loc.includes('/login')) throw new Error('GitHub cookie invalid or expired');
+    try { code = new URL(loc, 'https://github.com').searchParams.get('code'); } catch { /* ignore */ }
+  } else if (ghRes.status === 200) {
+    const html = await ghRes.text();
+    if (html.includes('id="login_field"') || html.includes('action="/session"')) throw new Error('GitHub cookie invalid or expired');
+    const tokenMatch = html.match(/name=["']authenticity_token["']\s+value=["']([^"']+)["']/i);
+    if (tokenMatch?.[1]) {
+      const postRes = await fetch('https://github.com/login/oauth/authorize', {
+        method: 'POST',
+        headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded', Cookie: rawCookie },
+        body: new URLSearchParams({ authenticity_token: tokenMatch[1], client_id: CLIENT_ID, state, scope: 'user:email', authorize: '1' }).toString(),
+        redirect: 'manual'
+      });
+      const postLoc = postRes.headers.get('location') || '';
+      try { code = new URL(postLoc, 'https://github.com').searchParams.get('code'); } catch { /* ignore */ }
+    }
+  }
+
+  if (!code) throw new Error('Failed to obtain OAuth authorization code from GitHub');
+
+  const cbRes = await fetch(`${BASE}/api/oauth/github?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`, {
+    method: 'GET',
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${BASE}/login`, Origin: BASE }
+  });
+
+  const body = await cbRes.json<{ success?: boolean; message?: string; data?: { user?: { display_name?: string; username?: string; quota?: number } } }>().catch(() => null);
+  if (body?.success) {
+    const u = body.data?.user;
+    return `Success · ${u?.display_name || u?.username || label} · balance $${((Number(u?.quota) || 0) / 500000).toFixed(2)}`;
+  }
+  if (cbRes.status === 200 && !body?.message) {
+    return `Success · ${label} · login completed`;
+  }
+  throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
+}
+
 async function claim(account: Account, env: Env) {
   let result = '';
+  const rawCookie = await decrypt(account.github_cookie, env);
   try {
-    const state = await oauthState();
-    const browser = await launch(env.BROWSER);
+    result = await pureHttpClaim(rawCookie, account.label);
+  } catch (httpError) {
+    console.log(`[Pure HTTP fallback to browser] ${httpError instanceof Error ? httpError.message : String(httpError)}`);
     try {
-      const context = await browser.newContext({ userAgent: USER_AGENT });
-      await addGithubCookies(context, await decrypt(account.github_cookie, env));
-      const page = await context.newPage();
-      await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
-      if (await page.locator('#login_field').count()) throw new Error('GitHub cookie is invalid or expired');
-      const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
-      let callbackResponse = await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-      const authorize = page.getByRole('button', { name: /authorize/i }).first();
-      if (await authorize.isVisible().catch(() => false)) {
-        [callbackResponse] = await Promise.all([
-          page.waitForResponse((response) => response.url().includes('/api/oauth/github'), { timeout: 45_000 }),
-          authorize.click()
-        ]);
-      }
-      const callbackBody = callbackResponse?.url().includes('/api/oauth/github')
-        ? await callbackResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
-        : null;
-      const session = await waitForSession(context);
-      const userId = session && sessionUserId(session.value);
-      if (userId) await context.setExtraHTTPHeaders({ 'New-Api-User': userId });
-      const user = await readSelf(page).catch(() => callbackBody?.data?.user || callbackBody?.data);
-      if (callbackBody?.success === false) throw new Error(callbackBody.message || 'OAuth callback failed');
-      if (!user) {
-        if (callbackResponse?.status() === 200 && session) {
-          result = `Success · ${account.label} · login completed (balance unavailable)`;
-        } else {
-          const detail = `callback=${callbackResponse?.status() || 'none'}, session=${session ? 'yes' : 'no'}`;
-          throw new Error(`OAuth callback did not return an authenticated user (${detail})`);
+      const state = await oauthState();
+      const browser = await launch(env.BROWSER);
+      try {
+        const context = await browser.newContext({ userAgent: USER_AGENT });
+        await addGithubCookies(context, rawCookie);
+        const page = await context.newPage();
+        await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
+        if (await page.locator('#login_field').count()) throw new Error('GitHub cookie is invalid or expired');
+        const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
+        let callbackResponse = await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+        const authorize = page.getByRole('button', { name: /authorize/i }).first();
+        if (await authorize.isVisible().catch(() => false)) {
+          [callbackResponse] = await Promise.all([
+            page.waitForResponse((response) => response.url().includes('/api/oauth/github'), { timeout: 45_000 }),
+            authorize.click()
+          ]);
         }
-      } else {
-        result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
-      }
-    } finally { await browser.close(); }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    result = `Failed: ${/429|rate limit/i.test(message) ? 'Cloudflare Browser Rendering rate limit exceeded; wait before retrying' : message.replace(/(user_session|_gh_sess)=[^;\s]+/g, '$1=[redacted]')}`;
+        const callbackBody = callbackResponse?.url().includes('/api/oauth/github')
+          ? await callbackResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
+          : null;
+        const session = await waitForSession(context);
+        const userId = session && sessionUserId(session.value);
+        if (userId) await context.setExtraHTTPHeaders({ 'New-Api-User': userId });
+        const user = await readSelf(page).catch(() => callbackBody?.data?.user || callbackBody?.data);
+        if (callbackBody?.success === false) throw new Error(callbackBody.message || 'OAuth callback failed');
+        if (!user) {
+          if (callbackResponse?.status() === 200 && session) {
+            result = `Success · ${account.label} · login completed (balance unavailable)`;
+          } else {
+            const detail = `callback=${callbackResponse?.status() || 'none'}, session=${session ? 'yes' : 'no'}`;
+            throw new Error(`OAuth callback did not return an authenticated user (${detail})`);
+          }
+        } else {
+          result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
+        }
+      } finally { await browser.close(); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      result = `Failed: ${/429|rate limit/i.test(message) ? 'Cloudflare Browser Rendering rate limit exceeded; wait before retrying' : message.replace(/(user_session|_gh_sess)=[^;\s]+/g, '$1=[redacted]')}`;
+    }
   }
   const createdAt = new Date().toISOString();
   const success = result.startsWith('Success');
