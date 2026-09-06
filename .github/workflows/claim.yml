@@ -16,7 +16,7 @@ jobs:
       - name: Setup Cloudflare WARP
         uses: fscarmen/warp-on-actions@v1.3
         with:
-          mode: global
+          mode: wireguard
 
       - name: Setup Node.js (Latest Stable)
         uses: actions/setup-node@v4
