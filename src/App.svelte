@@ -376,4 +376,22 @@
       </div>
     </Card.Content>
   </Card.Root>
+
+  <!-- Footer -->
+  <footer class="flex flex-col items-center justify-between gap-3 border-t border-zinc-850 pt-6 pb-2 text-xs text-zinc-500 sm:flex-row">
+    <p class="text-center sm:text-left">
+      AgentRouter Auto Claim · Cloudflare Workers & D1
+    </p>
+    <div class="flex items-center gap-4">
+      <span class="font-mono text-[11px] text-zinc-600">Cron 00:05 UTC</span>
+      <a
+        href="https://github.com/andrraa/agentrouter-autoclaim"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="transition-colors hover:text-zinc-300 underline-offset-4 hover:underline"
+      >
+        GitHub
+      </a>
+    </div>
+  </footer>
 </main>
