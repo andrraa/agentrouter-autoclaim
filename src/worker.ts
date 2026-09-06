@@ -114,11 +114,10 @@ async function pureHttpClaim(rawCookie: string, label: string) {
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
   if (body?.success && body.data) {
     const u = body.data.user || body.data;
-    const quota = typeof u.quota === 'number' ? u.quota : Number(u.quota) || 0;
-    return `Success · ${u.display_name || u.username || label} · balance $${(quota / 500000).toFixed(2)}`;
+    return `Success · ${u.display_name || u.username || label}`;
   }
   if (cbRes.status === 200 && !body?.message) {
-    return `Success · ${label} · login completed`;
+    return `Success · ${label}`;
   }
   throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
 }
@@ -158,13 +157,13 @@ async function claim(account: Account, env: Env) {
         if (callbackBody?.success === false) throw new Error(callbackBody.message || 'OAuth callback failed');
         if (!user) {
           if (callbackResponse?.status() === 200 && session) {
-            result = `Success · ${account.label} · login completed (balance unavailable)`;
+            result = `Success · ${account.label}`;
           } else {
             const detail = `callback=${callbackResponse?.status() || 'none'}, session=${session ? 'yes' : 'no'}`;
             throw new Error(`OAuth callback did not return an authenticated user (${detail})`);
           }
         } else {
-          result = `Success · ${user.display_name || user.username || account.label} · balance $${((Number(user.quota) || 0) / 500000).toFixed(2)}`;
+          result = `Success · ${user.display_name || user.username || account.label}`;
         }
       } finally { await browser.close(); }
     } catch (error) {
@@ -211,6 +210,6 @@ export default {
   fetch(request: Request, env: Env) { return new URL(request.url).pathname.startsWith('/api/') ? api(request, env) : env.ASSETS.fetch(request); },
   async scheduled(_controller: ScheduledController, env: Env) {
     const { results } = await env.DB.prepare('SELECT * FROM accounts WHERE enabled = 1').all<Account>();
-    for (const account of results) await claim(account, env);
+    await Promise.allSettled(results.map((account) => claim(account, env)));
   }
 } satisfies ExportedHandler<Env>;
