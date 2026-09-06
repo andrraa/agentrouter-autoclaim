@@ -295,41 +295,42 @@
     <Card.Content class="p-0">
       <div class="divide-y divide-zinc-850">
         {#each accounts as account}
-          <div class="flex items-center justify-between gap-3 px-4 py-3.5 transition-colors hover:bg-zinc-900/20 sm:px-6">
-            <div class="min-w-0 flex-1 space-y-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <p class="truncate text-sm font-medium text-zinc-200">{account.label}</p>
-                <Badge
-                  variant="outline"
-                  class="text-[10px] sm:text-[11px] font-normal border-zinc-800 {account.last_result?.startsWith('Success') ? 'border-zinc-600 text-zinc-200' : account.last_result ? 'border-red-900/60 text-red-400' : 'text-zinc-500'}"
-                >
-                  {account.last_result?.startsWith('Success') ? 'Success' : account.last_result ? 'Failed' : 'Pending'}
-                </Badge>
-              </div>
+          <div class="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-zinc-900/20 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-3.5">
+            <div class="space-y-0.5 min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-zinc-200">{account.label}</p>
               <p class="text-[11px] text-zinc-500 font-mono">
                 {account.last_claim_at ? `Last run: ${new Date(account.last_claim_at).toLocaleString('en-US')}` : 'Never executed'}
               </p>
             </div>
 
-            <div class="flex items-center gap-1.5 shrink-0">
-              <Button
-                size="sm"
+            <div class="flex items-center justify-between gap-2.5 pt-2 border-t border-zinc-900 sm:border-t-0 sm:pt-0 sm:justify-end">
+              <Badge
                 variant="outline"
-                class="h-7 border-zinc-800 px-2.5 text-xs text-zinc-300 hover:bg-zinc-900"
-                disabled={claimingId !== null}
-                onclick={() => claim(account.id)}
+                class="text-[11px] font-normal border-zinc-800 {account.last_result?.startsWith('Success') ? 'border-zinc-600 text-zinc-200' : account.last_result ? 'border-red-900/60 text-red-400' : 'text-zinc-500'}"
               >
-                {claimingId === account.id ? 'Claiming…' : 'Claim'}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                class="h-7 px-2 text-xs text-zinc-500 hover:text-red-400"
-                disabled={claimingId !== null}
-                onclick={() => accountToDelete = account}
-              >
-                Delete
-              </Button>
+                {account.last_result?.startsWith('Success') ? 'Success' : account.last_result ? 'Failed' : 'Pending'}
+              </Badge>
+
+              <div class="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-7 border-zinc-800 px-2.5 text-xs text-zinc-300 hover:bg-zinc-900"
+                  disabled={claimingId !== null}
+                  onclick={() => claim(account.id)}
+                >
+                  {claimingId === account.id ? 'Claiming…' : 'Claim'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="h-7 px-2 text-xs text-zinc-500 hover:text-red-400"
+                  disabled={claimingId !== null}
+                  onclick={() => accountToDelete = account}
+                >
+                  Delete
+                </Button>
+              </div>
             </div>
           </div>
         {:else}
@@ -360,7 +361,7 @@
               </Badge>
               <div class="min-w-0 flex-1">
                 <span class="font-medium text-zinc-300">{item.label}</span>
-                <span class="ml-2 block sm:inline break-all text-zinc-500 font-mono text-[11px]">{item.result}</span>
+                <span class="mt-0.5 block break-all text-zinc-500 font-mono text-[11px] sm:mt-0 sm:ml-2 sm:inline">{item.result}</span>
               </div>
             </div>
             <time class="shrink-0 font-mono text-[11px] text-zinc-600 self-end sm:self-auto">
