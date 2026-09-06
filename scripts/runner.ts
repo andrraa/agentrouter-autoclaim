@@ -1,4 +1,4 @@
-import { chromium, type BrowserContext } from 'playwright';
+import { chromium, type BrowserContext, type Page } from 'playwright';
 
 const BASE = 'https://agentrouter.org';
 const CLIENT_ID = 'Ov23lidtiR4LeVZvVRNL';
@@ -32,31 +32,33 @@ async function addGithubCookies(context: BrowserContext, header: string) {
   }
 }
 
-async function oauthState(page?: import('playwright').Page) {
-  if (page) {
-    const fromPage = await page.evaluate(async (url) => {
-      const res = await fetch(url, { headers: { accept: 'application/json' } });
-      return res.json().catch(() => null);
-    }, `${BASE}/api/oauth/state`).catch(() => null) as { success?: boolean; data?: string } | null;
-    if (fromPage?.success && fromPage.data) return fromPage.data;
-  }
+async function getInPageOAuthState(page: Page): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const res = await page.evaluate(async (url) => {
+        const r = await fetch(url, { headers: { accept: 'application/json, text/plain, */*' } });
+        return r.json().catch(() => null);
+      }, `${BASE}/api/oauth/state`) as { success?: boolean; data?: string } | null;
 
+      if (res?.success && res.data) return String(res.data);
+    } catch { /* wait for WAF challenge to settle */ }
+    await page.waitForTimeout(2000);
+  }
+  throw new Error('Failed to retrieve OAuth state from AgentRouter page context');
+}
+
+async function pureHttpClaim(rawCookie: string, label: string) {
   const response = await fetch(`${BASE}/api/oauth/state`, {
     headers: { accept: 'application/json, text/plain, */*', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT }
   });
   const text = await response.text();
-  let body: { success?: boolean; data?: string; message?: string } | null = null;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    throw new Error('AgentRouter OAuth state returned HTML (WAF block)');
+  let stateRes: { success?: boolean; data?: string } | null = null;
+  try { stateRes = JSON.parse(text); } catch {
+    throw new Error('Pure HTTP state blocked by WAF');
   }
-  if (!body?.success || !body.data) throw new Error(body?.message || 'Failed to get OAuth state');
-  return body.data;
-}
+  if (!stateRes?.success || !stateRes.data) throw new Error('Failed to obtain state via pure HTTP');
+  const state = stateRes.data;
 
-async function pureHttpClaim(rawCookie: string, label: string) {
-  const state = await oauthState();
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
   const ghRes = await fetch(authUrl, {
     method: 'GET',
@@ -109,28 +111,43 @@ async function browserClaim(rawCookie: string, label: string) {
     const context = await browser.newContext({ userAgent: USER_AGENT });
     await addGithubCookies(context, rawCookie);
     const page = await context.newPage();
+
+    // 1. Open AgentRouter login to allow WAF challenge to execute
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-    const state = await oauthState(page);
+    await page.waitForTimeout(3000);
+
+    // 2. Fetch OAuth state from page context
+    const state = await getInPageOAuthState(page);
+
+    // 3. Visit GitHub to ensure session is primed
     await page.goto('https://github.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 });
     if (await page.locator('#login_field').count()) throw new Error('GitHub cookie is invalid or expired');
 
+    // 4. Navigate to GitHub OAuth authorize
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
-    let callbackResponse = await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+
+    // 5. Click Authorize if consent screen is shown
     const authorize = page.getByRole('button', { name: /authorize/i }).first();
     if (await authorize.isVisible().catch(() => false)) {
-      [callbackResponse] = await Promise.all([
-        page.waitForResponse((response) => response.url().includes('/api/oauth/github'), { timeout: 45_000 }),
-        authorize.click()
-      ]);
+      await authorize.click();
     }
-    const callbackBody = callbackResponse?.url().includes('/api/oauth/github')
-      ? await callbackResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
-      : null;
 
-    if (callbackBody?.success && callbackBody.data) {
-      const u = callbackBody.data.user || callbackBody.data;
+    // 6. Wait for redirect back to AgentRouter
+    await page.waitForURL(/agentrouter\.org/, { timeout: 45_000 });
+    await page.waitForTimeout(3000);
+
+    // 7. Get user data from console
+    const userRes = await page.evaluate(async (url) => {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      return res.json().catch(() => null);
+    }, `${BASE}/api/user/self`).catch(() => null) as { success?: boolean; data?: Record<string, any> } | null;
+
+    if (userRes?.success && userRes.data) {
+      const u = userRes.data;
       return `Success (GH Runner) · ${u.display_name || u.username || label}`;
     }
+
     return `Success (GH Runner) · ${label}`;
   } finally {
     await browser.close();
