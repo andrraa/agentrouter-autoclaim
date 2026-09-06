@@ -293,7 +293,7 @@
   <Card.Root class="border-zinc-800 bg-zinc-950/60">
     <Card.Header class="pb-3">
       <Card.Title class="text-sm font-medium text-zinc-200">Execution History</Card.Title>
-      <Card.Description class="text-xs text-zinc-500">Latest 100 manual and automated execution logs</Card.Description>
+      <Card.Description class="text-xs text-zinc-500">Latest execution log per account</Card.Description>
     </Card.Header>
     <Card.Content class="p-0">
       <div class="divide-y divide-zinc-850">

@@ -188,7 +188,9 @@ async function api(request: Request, env: Env) {
     return json(results);
   }
   if (request.method === 'GET' && url.pathname === '/api/history') {
-    const { results } = await env.DB.prepare('SELECT h.id, a.label, h.success, h.result, h.created_at FROM claim_history h JOIN accounts a ON a.id = h.account_id ORDER BY h.id DESC LIMIT 100').all();
+    const { results } = await env.DB.prepare(
+      'SELECT h.id, a.label, h.success, h.result, h.created_at FROM claim_history h JOIN accounts a ON a.id = h.account_id WHERE h.id IN (SELECT MAX(id) FROM claim_history GROUP BY account_id) ORDER BY h.id DESC'
+    ).all();
     return json(results);
   }
   if (request.method === 'POST' && url.pathname === '/api/accounts') {
