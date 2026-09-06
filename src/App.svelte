@@ -212,7 +212,7 @@
       <div class="flex flex-wrap items-center gap-2">
         <h1 class="text-lg font-semibold tracking-tight text-zinc-100 sm:text-xl">AgentRouter Claim</h1>
         <Badge variant="outline" class="border-zinc-800 text-[10px] text-zinc-400 font-normal">
-          Cron 00:05 UTC
+          Actions 00:05 UTC
         </Badge>
       </div>
       <p class="text-xs text-zinc-400">Multi-account daily rewards auto-claim worker</p>
@@ -404,7 +404,7 @@
       AgentRouter Auto Claim · Cloudflare Workers & D1
     </p>
     <div class="flex items-center gap-4">
-      <span class="font-mono text-[11px] text-zinc-600">Cron 00:05 UTC</span>
+      <span class="font-mono text-[11px] text-zinc-600">Actions 00:05 UTC</span>
       <a
         href="https://github.com/andrraa/agentrouter-autoclaim"
         target="_blank"

@@ -295,9 +295,5 @@ async function api(request: Request, env: Env) {
 }
 
 export default {
-  fetch(request: Request, env: Env) { return new URL(request.url).pathname.startsWith('/api/') ? api(request, env) : env.ASSETS.fetch(request); },
-  async scheduled(_controller: ScheduledController, env: Env) {
-    const { results } = await env.DB.prepare('SELECT * FROM accounts WHERE enabled = 1').all<Account>();
-    await Promise.allSettled(results.map((account) => claim(account, env)));
-  }
+  fetch(request: Request, env: Env) { return new URL(request.url).pathname.startsWith('/api/') ? api(request, env) : env.ASSETS.fetch(request); }
 } satisfies ExportedHandler<Env>;
