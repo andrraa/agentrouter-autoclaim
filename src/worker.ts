@@ -112,32 +112,11 @@ async function pureHttpClaim(rawCookie: string, label: string) {
   });
 
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
-  // Extract session cookie from OAuth callback response
-  let sessionCookie = '';
-  const setCookies = typeof (cbRes.headers as any).getSetCookie === 'function'
-    ? (cbRes.headers as any).getSetCookie()
-    : [cbRes.headers.get('set-cookie') || ''];
-  for (const str of setCookies) {
-    const match = str.match(/session=([^;]+)/);
-    if (match) { sessionCookie = `session=${match[1]}`; break; }
+  if (body?.success && body.data) {
+    const u = body.data.user || body.data;
+    const quota = typeof u.quota === 'number' ? u.quota : Number(u.quota) || 0;
+    return `Success · ${u.display_name || u.username || label} · balance $${(quota / 500000).toFixed(2)}`;
   }
-
-  let u = body?.data?.user || body?.data || {};
-
-  // Try fetching fresh /api/user/self if session cookie was returned
-  if (sessionCookie) {
-    const userId = sessionUserId(sessionCookie);
-    const selfHeaders: Record<string, string> = { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Cookie: sessionCookie, Referer: `${BASE}/console`, Origin: BASE };
-    if (userId) selfHeaders['New-Api-User'] = userId;
-    const selfRes = await fetch(`${BASE}/api/user/self`, { headers: selfHeaders }).catch(() => null);
-    const selfBody = await selfRes?.json<{ success?: boolean; data?: Record<string, any> }>().catch(() => null);
-    if (selfBody?.success && selfBody.data) {
-      u = { ...u, ...selfBody.data };
-    }
-  }
-
-  const quota = typeof u.quota === 'number' ? u.quota : Number(u.quota) || (typeof u.remain_quota === 'number' ? u.remain_quota : Number(u.remain_quota)) || 0;
-  return `Success · ${u.display_name || u.username || label} · balance $${(quota / 500000).toFixed(2)}`;
   if (cbRes.status === 200 && !body?.message) {
     return `Success · ${label} · login completed`;
   }
