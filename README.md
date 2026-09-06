@@ -148,8 +148,7 @@ When `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured, status notifica
 3. Determine the Chat ID:
    - **Public Channel:** Use `@channel_username`.
    - **Private Channel:** Forward any message from the channel to `@userinfobot` to retrieve the numeric ID (typically starting with `-100`).
-4. Set the `TELEGRAM_CHAT_ID` secret in Cloudflare.
-5. Click **Test Bot** in the dashboard header to verify delivery.
+4. Set the `TELEGRAM_CHAT_ID` secret in Cloudflare. Notifications will be delivered automatically on every claim run.
 
 ---
 

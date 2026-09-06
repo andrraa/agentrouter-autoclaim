@@ -20,24 +20,6 @@
   let refreshing = false;
   let accountToDelete: Account | null = null;
   let deleting = false;
-  let testingBot = false;
-
-  async function testTelegram() {
-    testingBot = true;
-    message = 'Sending test Telegram message…';
-    try {
-      const res = await call('/api/telegram/test', { method: 'POST' });
-      if (res.ok) {
-        message = 'Success: Telegram test notification sent to channel!';
-      } else {
-        message = `Telegram Error: ${res.error || 'Failed to send'}`;
-      }
-    } catch (e) {
-      message = `Telegram Error: ${(e as Error).message}`;
-    } finally {
-      testingBot = false;
-    }
-  }
 
   async function call(path: string, options: RequestInit = {}) {
     const response = await fetch(path, {
@@ -220,9 +202,6 @@
 
     {#if authenticated}
       <div class="flex items-center gap-2 self-end sm:self-auto">
-        <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={testingBot} onclick={testTelegram}>
-          {testingBot ? 'Testing…' : 'Test Bot'}
-        </Button>
         <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={refreshing} onclick={load}>
           {refreshing ? 'Refreshing…' : 'Refresh'}
         </Button>
