@@ -16,6 +16,8 @@
   let authenticated = false;
   let claimingId: number | null = null;
   let refreshing = false;
+  let accountToDelete: Account | null = null;
+  let deleting = false;
 
   async function call(path: string, options: RequestInit = {}) {
     const response = await fetch(path, {
@@ -70,10 +72,17 @@
     }
   }
 
-  async function remove(id: number) {
-    if (confirm('Delete this account?')) {
-      await call(`/api/accounts/${id}`, { method: 'DELETE' });
+  async function confirmDelete() {
+    if (!accountToDelete) return;
+    deleting = true;
+    try {
+      await call(`/api/accounts/${accountToDelete.id}`, { method: 'DELETE' });
+      accountToDelete = null;
       await load();
+    } catch (e) {
+      message = (e as Error).message;
+    } finally {
+      deleting = false;
     }
   }
 
@@ -113,6 +122,40 @@
           Sign In
         </Button>
       </form>
+    </div>
+  </div>
+{/if}
+
+{#if accountToDelete}
+  <div class="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+      <div class="mb-4 space-y-1.5">
+        <h3 class="text-sm font-semibold tracking-tight text-zinc-100">Delete account</h3>
+        <p class="text-xs text-zinc-400">
+          Are you sure you want to remove <span class="font-medium text-zinc-200">"{accountToDelete.label}"</span>? Automated claims for this account will stop.
+        </p>
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          class="border-zinc-800 text-xs text-zinc-300 hover:bg-zinc-900"
+          disabled={deleting}
+          onclick={() => accountToDelete = null}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          class="border border-red-900/60 bg-red-950/40 text-xs text-red-400 hover:bg-red-900/40"
+          disabled={deleting}
+          onclick={confirmDelete}
+        >
+          {deleting ? 'Deleting…' : 'Delete'}
+        </Button>
+      </div>
     </div>
   </div>
 {/if}
@@ -230,7 +273,7 @@
                   variant="ghost"
                   class="h-7 px-2 text-xs text-zinc-500 hover:text-red-400"
                   disabled={claimingId !== null}
-                  onclick={() => remove(account.id)}
+                  onclick={() => accountToDelete = account}
                 >
                   Delete
                 </Button>

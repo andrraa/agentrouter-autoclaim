@@ -54,6 +54,10 @@
   @apply border-border;
 }
 
+button, [role="button"], [data-slot="button"] {
+  cursor: pointer;
+}
+
 body {
   @apply m-0 min-h-screen bg-background text-foreground antialiased selection:bg-zinc-800 selection:text-zinc-100;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
