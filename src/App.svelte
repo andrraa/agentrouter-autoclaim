@@ -118,7 +118,7 @@
         {#if message}
           <p class="text-xs text-red-400">{message}</p>
         {/if}
-        <Button type="submit" class="w-full bg-zinc-100 text-zinc-900 hover:bg-zinc-200">
+        <Button type="submit" class="w-full bg-zinc-100 font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
           Sign In
         </Button>
       </form>
@@ -221,7 +221,7 @@
           class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400"
           required
         />
-        <Button type="submit" variant="outline" class="border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200">
+        <Button type="submit" class="border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900">
           Add
         </Button>
       </form>
