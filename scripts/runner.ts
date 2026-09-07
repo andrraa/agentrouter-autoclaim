@@ -154,7 +154,13 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
 
     // 4. Navigate to GitHub OAuth authorize
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
-    let cbResponse = await page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    let cbResponse: import('playwright').Response | null = null;
+
+    const [navResponse] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/oauth/github'), { timeout: 45_000 }).catch(() => null),
+      page.goto(authUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+    ]);
+    cbResponse = navResponse;
 
     // 5. Click Authorize if consent button is displayed
     const authorize = page.getByRole('button', { name: /authorize/i }).first();
@@ -163,6 +169,10 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
         page.waitForResponse((r) => r.url().includes('/api/oauth/github'), { timeout: 45_000 }).catch(() => null),
         authorize.click()
       ]);
+    }
+
+    if (!cbResponse) {
+      cbResponse = await page.waitForResponse((r) => r.url().includes('/api/oauth/github'), { timeout: 15_000 }).catch(() => null);
     }
 
     await page.waitForTimeout(3000);
@@ -180,7 +190,7 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
     const cookies = await context.cookies(new URL(baseUrl).origin);
     const hasSession = cookies.some((c) => c.name === 'session');
 
-    if (hasSession || cbResponse?.status() === 200) {
+    if (hasSession) {
       const userRes = await page.evaluate(async (url) => {
         const res = await fetch(url, { headers: { accept: 'application/json' } });
         return res.json().catch(() => null);
@@ -190,11 +200,9 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
         const u = userRes.data;
         return `Success (GH Runner) · ${u.display_name || u.username || label}`;
       }
-
-      return `Success (GH Runner) · ${label}`;
     }
 
-    throw new Error(callbackBody?.message || 'OAuth callback failed');
+    throw new Error(callbackBody?.message || 'OAuth callback failed to authenticate with AgentRouter');
   } finally {
     await browser.close();
   }
