@@ -250,16 +250,24 @@ async function api(request: Request, env: Env) {
     return json(decrypted);
   }
   if (request.method === 'POST' && url.pathname === '/api/runner/report') {
-    const body = await request.json<{ id?: number; result?: string }>();
+    const body = await request.json<{ id?: number; result?: string; updatedCookie?: string }>();
     if (!body.id || !body.result) return json({ error: 'Missing id or result' }, 400);
     const account = await env.DB.prepare('SELECT id, label FROM accounts WHERE id = ?').bind(body.id).first<{ id: number; label: string }>();
     if (!account) return json({ error: 'Account not found' }, 404);
     const createdAt = new Date().toISOString();
     const success = body.result.startsWith('Success');
-    await env.DB.batch([
+
+    const dbOps = [
       env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(createdAt, body.result, account.id),
       env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, body.result, createdAt)
-    ]);
+    ];
+
+    if (body.updatedCookie && body.updatedCookie.includes('=')) {
+      const encrypted = await encrypt(body.updatedCookie, env);
+      dbOps.push(env.DB.prepare('UPDATE accounts SET github_cookie = ? WHERE id = ?').bind(encrypted, account.id));
+    }
+
+    await env.DB.batch(dbOps);
     const emoji = success ? '✅' : '❌';
     const timeStr = new Date(createdAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
     await notifyTelegram(env, `<b>${emoji} AgentRouter Claim</b>\n<b>Account:</b> ${account.label}\n<b>Status:</b> ${body.result}\n<b>Time:</b> ${timeStr} WIB`);

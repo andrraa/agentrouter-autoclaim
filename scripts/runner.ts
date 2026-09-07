@@ -27,15 +27,64 @@ function rotateWarpIp(): boolean {
   }
 }
 
-function githubCookies(header: string) {
-  const cookies = new Map<string, { name: string; value: string; domain: string; path: string }>();
+interface ClaimResult {
+  message: string;
+  updatedCookie?: string;
+}
+
+function parseCookieString(header: string): Map<string, string> {
+  const map = new Map<string, string>();
   for (const part of header.replace(/[\r\n\t]+/g, ' ').split(';').map((v) => v.trim()).filter(Boolean)) {
     const at = part.indexOf('=');
-    const name = part.slice(0, at).trim();
-    const value = part.slice(at + 1).trim();
-    if (at > 0 && name && value && !/[\s={}?&]/.test(name)) {
-      cookies.set(name, { name, value, domain: '.github.com', path: '/' });
+    if (at > 0) {
+      const name = part.slice(0, at).trim();
+      const value = part.slice(at + 1).trim();
+      if (name && value && !/[\s={}?&]/.test(name)) {
+        map.set(name, value);
+      }
     }
+  }
+  return map;
+}
+
+function serializeCookieMap(map: Map<string, string>): string {
+  return [...map.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+function mergeSetCookies(baseCookie: string, response: Response): { merged: string; changed: boolean } {
+  const cookieMap = parseCookieString(baseCookie);
+  let changed = false;
+
+  // Header set-cookie (handling single string or comma/array in fetch headers)
+  const setCookieHeaders: string[] = [];
+  if (typeof (response.headers as any).getSetCookie === 'function') {
+    setCookieHeaders.push(...(response.headers as any).getSetCookie());
+  } else {
+    const single = response.headers.get('set-cookie');
+    if (single) setCookieHeaders.push(single);
+  }
+
+  for (const header of setCookieHeaders) {
+    // Each set-cookie directive: name=val; Path=/; Secure...
+    const firstPart = header.split(';')[0]?.trim();
+    if (firstPart && firstPart.includes('=')) {
+      const at = firstPart.indexOf('=');
+      const name = firstPart.slice(0, at).trim();
+      const value = firstPart.slice(at + 1).trim();
+      if (name && value && cookieMap.get(name) !== value) {
+        cookieMap.set(name, value);
+        changed = true;
+      }
+    }
+  }
+
+  return { merged: serializeCookieMap(cookieMap), changed };
+}
+
+function githubCookies(header: string) {
+  const cookies = new Map<string, { name: string; value: string; domain: string; path: string }>();
+  for (const [name, value] of parseCookieString(header).entries()) {
+    cookies.set(name, { name, value, domain: '.github.com', path: '/' });
   }
   return [...cookies.values()];
 }
@@ -46,6 +95,19 @@ async function addGithubCookies(context: BrowserContext, header: string) {
     await context.addCookies([cookie]).catch(() => undefined);
   }
 }
+
+const GH_BROWSER_HEADERS = {
+  'User-Agent': USER_AGENT,
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"Windows"',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'cross-site',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+};
 
 async function fetchOAuthState(baseUrl: string): Promise<string | null> {
   try {
@@ -68,16 +130,25 @@ async function fetchOAuthState(baseUrl: string): Promise<string | null> {
   return null;
 }
 
-async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string) {
+async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string): Promise<ClaimResult> {
+  let activeCookie = rawCookie;
+  let cookieHasChanged = false;
+
   const state = await fetchOAuthState(baseUrl);
   if (!state) throw new Error(`Failed to obtain OAuth state from ${baseUrl}`);
 
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
   const ghRes = await fetch(authUrl, {
     method: 'GET',
-    headers: { 'User-Agent': USER_AGENT, Cookie: rawCookie, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    headers: { ...GH_BROWSER_HEADERS, Cookie: activeCookie, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
     redirect: 'manual'
   });
+
+  const getMerge = mergeSetCookies(activeCookie, ghRes);
+  if (getMerge.changed) {
+    activeCookie = getMerge.merged;
+    cookieHasChanged = true;
+  }
 
   let code: string | null = null;
   const loc = ghRes.headers.get('location') || '';
@@ -91,10 +162,24 @@ async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string) 
     if (tokenMatch?.[1]) {
       const postRes = await fetch('https://github.com/login/oauth/authorize', {
         method: 'POST',
-        headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded', Cookie: rawCookie },
+        headers: {
+          ...GH_BROWSER_HEADERS,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: activeCookie,
+          Origin: 'https://github.com',
+          Referer: authUrl,
+          'Sec-Fetch-Site': 'same-origin'
+        },
         body: new URLSearchParams({ authenticity_token: tokenMatch[1], client_id: CLIENT_ID, state, scope: 'user:email', authorize: '1' }).toString(),
         redirect: 'manual'
       });
+
+      const postMerge = mergeSetCookies(activeCookie, postRes);
+      if (postMerge.changed) {
+        activeCookie = postMerge.merged;
+        cookieHasChanged = true;
+      }
+
       const postLoc = postRes.headers.get('location') || '';
       try { code = new URL(postLoc, 'https://github.com').searchParams.get('code'); } catch { /* ignore */ }
     }
@@ -108,17 +193,19 @@ async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string) 
   });
 
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
+  const updatedCookie = cookieHasChanged ? activeCookie : undefined;
+
   if (body?.success && body.data) {
     const u = body.data.user || body.data;
-    return `Success (HTTP) · ${u.display_name || u.username || label}`;
+    return { message: `Success (HTTP) · ${u.display_name || u.username || label}`, updatedCookie };
   }
   if (cbRes.status === 200 && !body?.message) {
-    return `Success (HTTP) · ${label}`;
+    return { message: `Success (HTTP) · ${label}`, updatedCookie };
   }
   throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
 }
 
-async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
+async function browserClaim(baseUrl: string, rawCookie: string, label: string): Promise<ClaimResult> {
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox']
@@ -192,13 +279,25 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
 
     await page.waitForTimeout(3000);
 
+    // Capture latest GitHub cookies from browser context
+    const ghContextCookies = await context.cookies('https://github.com');
+    const cookieMap = parseCookieString(rawCookie);
+    let cookieHasChanged = false;
+    for (const c of ghContextCookies) {
+      if (c.value && cookieMap.get(c.name) !== c.value) {
+        cookieMap.set(c.name, c.value);
+        cookieHasChanged = true;
+      }
+    }
+    const updatedCookie = cookieHasChanged ? serializeCookieMap(cookieMap) : undefined;
+
     const callbackBody = cbResponse?.url().includes('/api/oauth/github')
       ? await cbResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
       : null;
 
     if (callbackBody?.success && callbackBody.data) {
       const u = callbackBody.data.user || callbackBody.data;
-      return `Success (GH Runner) · ${u.display_name || u.username || label}`;
+      return { message: `Success (GH Runner) · ${u.display_name || u.username || label}`, updatedCookie };
     }
 
     // 6. Check if session cookie exists on baseUrl
@@ -213,7 +312,7 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
 
       if (userRes?.success && userRes.data) {
         const u = userRes.data;
-        return `Success (GH Runner) · ${u.display_name || u.username || label}`;
+        return { message: `Success (GH Runner) · ${u.display_name || u.username || label}`, updatedCookie };
       }
     }
 
@@ -223,7 +322,7 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
   }
 }
 
-async function claimAccount(rawCookie: string, label: string): Promise<string> {
+async function claimAccount(rawCookie: string, label: string): Promise<ClaimResult> {
   let lastErr = '';
 
   for (const baseUrl of CANDIDATE_URLS) {
@@ -266,19 +365,25 @@ async function run() {
     rotateWarpIp();
 
     let result = '';
+    let updatedCookie: string | undefined;
     try {
-      result = await claimAccount(acc.githubCookie, acc.label);
+      const outcome = await claimAccount(acc.githubCookie, acc.label);
+      result = outcome.message;
+      updatedCookie = outcome.updatedCookie;
       console.log(`  -> ${result}`);
+      if (updatedCookie) {
+        console.log(`  -> Detected updated session cookie from GitHub. Syncing to DB…`);
+      }
     } catch (err) {
       result = `Failed: ${err instanceof Error ? err.message : String(err)}`;
       console.error(`  -> ${result}`);
     }
 
-    // Report back to worker
+    // Report back to worker (including updated cookie if refreshed)
     await fetch(`${WORKER_URL}/api/runner/report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ACCESS_CODE}` },
-      body: JSON.stringify({ id: acc.id, result })
+      body: JSON.stringify({ id: acc.id, result, updatedCookie })
     }).catch((err) => console.error('  -> Failed to report back to worker:', err));
 
     // Berikan jeda 5 detik antar akun
