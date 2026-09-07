@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 
 const CANDIDATE_URLS = ['https://agentrouter.org', 'https://ps.air-outer.com'];
@@ -10,6 +11,20 @@ const ACCESS_CODE = process.env.ACCESS_CODE || '';
 if (!WORKER_URL || !ACCESS_CODE) {
   console.error('Error: WORKER_URL and ACCESS_CODE environment variables are required.');
   process.exit(1);
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function rotateWarpIp(): boolean {
+  try {
+    execSync('warp-cli disconnect 2>/dev/null || true', { stdio: 'ignore' });
+    execSync('sleep 1', { stdio: 'ignore' });
+    execSync('warp-cli connect 2>/dev/null || true', { stdio: 'ignore' });
+    execSync('sleep 3', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function githubCookies(header: string) {
@@ -211,23 +226,35 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
 async function claimAccount(rawCookie: string, label: string): Promise<string> {
   let lastErr = '';
 
-  for (const baseUrl of CANDIDATE_URLS) {
-    // 1. Try Pure HTTP first
-    try {
-      return await pureHttpClaim(baseUrl, rawCookie, label);
-    } catch (httpErr) {
-      lastErr = httpErr instanceof Error ? httpErr.message : String(httpErr);
+  // 1. Prioritaskan Pure HTTP: coba hingga 3x percobaan per candidate URL
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    for (const baseUrl of CANDIDATE_URLS) {
+      try {
+        console.log(`  [HTTP Attempt ${attempt}] Trying ${baseUrl}…`);
+        return await pureHttpClaim(baseUrl, rawCookie, label);
+      } catch (httpErr) {
+        lastErr = httpErr instanceof Error ? httpErr.message : String(httpErr);
+        console.log(`  [HTTP Attempt ${attempt} Failed] ${baseUrl}: ${lastErr}`);
+      }
     }
+    if (attempt < 3) {
+      rotateWarpIp();
+      await sleep(2000);
+    }
+  }
 
-    // 2. Fallback to Stealth Chromium Playwright
+  // 2. Fallback to Stealth Chromium Playwright jika 3x HTTP tetap gagal
+  console.log(`  [Fallback] HTTP failed 3x, switching to Playwright stealth browser…`);
+  for (const baseUrl of CANDIDATE_URLS) {
     try {
       return await browserClaim(baseUrl, rawCookie, label);
     } catch (browserErr) {
       lastErr = browserErr instanceof Error ? browserErr.message : String(browserErr);
+      console.log(`  [Browser Failed] ${baseUrl}: ${lastErr}`);
     }
   }
 
-  throw new Error(lastErr || 'All candidate endpoints failed');
+  throw new Error(lastErr || 'All candidate endpoints and fallback methods failed');
 }
 
 async function run() {
@@ -243,8 +270,13 @@ async function run() {
   const accounts = await res.json<{ id: number; label: string; githubCookie: string }[]>();
   console.log(`Found ${accounts.length} active account(s).\n`);
 
-  for (const acc of accounts) {
-    console.log(`Processing [${acc.label}]…`);
+  for (let i = 0; i < accounts.length; i++) {
+    const acc = accounts[i];
+    console.log(`\n[${i + 1}/${accounts.length}] Processing [${acc.label}]…`);
+
+    // Rotasi IP Cloudflare WARP untuk tiap akun
+    rotateWarpIp();
+
     let result = '';
     try {
       result = await claimAccount(acc.githubCookie, acc.label);
@@ -260,6 +292,12 @@ async function run() {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ACCESS_CODE}` },
       body: JSON.stringify({ id: acc.id, result })
     }).catch((err) => console.error('  -> Failed to report back to worker:', err));
+
+    // Berikan jeda 5 detik antar akun
+    if (i < accounts.length - 1) {
+      console.log('  Waiting 5s before next account…');
+      await sleep(5000);
+    }
   }
 
   console.log('\nAll accounts processed.');
