@@ -226,35 +226,23 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string) {
 async function claimAccount(rawCookie: string, label: string): Promise<string> {
   let lastErr = '';
 
-  // 1. Prioritaskan Pure HTTP: coba hingga 3x percobaan per candidate URL
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    for (const baseUrl of CANDIDATE_URLS) {
-      try {
-        console.log(`  [HTTP Attempt ${attempt}] Trying ${baseUrl}…`);
-        return await pureHttpClaim(baseUrl, rawCookie, label);
-      } catch (httpErr) {
-        lastErr = httpErr instanceof Error ? httpErr.message : String(httpErr);
-        console.log(`  [HTTP Attempt ${attempt} Failed] ${baseUrl}: ${lastErr}`);
-      }
-    }
-    if (attempt < 3) {
-      rotateWarpIp();
-      await sleep(2000);
-    }
-  }
-
-  // 2. Fallback to Stealth Chromium Playwright jika 3x HTTP tetap gagal
-  console.log(`  [Fallback] HTTP failed 3x, switching to Playwright stealth browser…`);
   for (const baseUrl of CANDIDATE_URLS) {
+    // 1. Try Pure HTTP first
+    try {
+      return await pureHttpClaim(baseUrl, rawCookie, label);
+    } catch (httpErr) {
+      lastErr = httpErr instanceof Error ? httpErr.message : String(httpErr);
+    }
+
+    // 2. Fallback to Stealth Chromium Playwright
     try {
       return await browserClaim(baseUrl, rawCookie, label);
     } catch (browserErr) {
       lastErr = browserErr instanceof Error ? browserErr.message : String(browserErr);
-      console.log(`  [Browser Failed] ${baseUrl}: ${lastErr}`);
     }
   }
 
-  throw new Error(lastErr || 'All candidate endpoints and fallback methods failed');
+  throw new Error(lastErr || 'All candidate endpoints failed');
 }
 
 async function run() {
