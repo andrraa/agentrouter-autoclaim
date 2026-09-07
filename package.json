@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.worker.json",
+    "test": "tsx scripts/cookies.test.ts",
     "deploy": "npm run build && wrangler deploy",
     "db:migrate": "wrangler d1 migrations apply agentrouter-autoclaim --remote"
   },

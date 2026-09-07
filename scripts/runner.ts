@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
-import { chromium, type BrowserContext, type Page } from 'playwright';
+import { chromium, type BrowserContext } from 'playwright';
+import { parseCookieString, serializeCookieMap, mergeSetCookies, captureGithubCookies } from '../src/cookies';
 
 const CANDIDATE_URLS = ['https://agentrouter.org', 'https://ps.air-outer.com'];
 const CLIENT_ID = 'Ov23lidtiR4LeVZvVRNL';
@@ -29,56 +30,6 @@ function rotateWarpIp(): boolean {
 
 interface ClaimResult {
   message: string;
-  updatedCookie?: string;
-}
-
-function parseCookieString(header: string): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const part of header.replace(/[\r\n\t]+/g, ' ').split(';').map((v) => v.trim()).filter(Boolean)) {
-    const at = part.indexOf('=');
-    if (at > 0) {
-      const name = part.slice(0, at).trim();
-      const value = part.slice(at + 1).trim();
-      if (name && value && !/[\s={}?&]/.test(name)) {
-        map.set(name, value);
-      }
-    }
-  }
-  return map;
-}
-
-function serializeCookieMap(map: Map<string, string>): string {
-  return [...map.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
-}
-
-function mergeSetCookies(baseCookie: string, response: Response): { merged: string; changed: boolean } {
-  const cookieMap = parseCookieString(baseCookie);
-  let changed = false;
-
-  // Header set-cookie (handling single string or comma/array in fetch headers)
-  const setCookieHeaders: string[] = [];
-  if (typeof (response.headers as any).getSetCookie === 'function') {
-    setCookieHeaders.push(...(response.headers as any).getSetCookie());
-  } else {
-    const single = response.headers.get('set-cookie');
-    if (single) setCookieHeaders.push(single);
-  }
-
-  for (const header of setCookieHeaders) {
-    // Each set-cookie directive: name=val; Path=/; Secure...
-    const firstPart = header.split(';')[0]?.trim();
-    if (firstPart && firstPart.includes('=')) {
-      const at = firstPart.indexOf('=');
-      const name = firstPart.slice(0, at).trim();
-      const value = firstPart.slice(at + 1).trim();
-      if (name && value && cookieMap.get(name) !== value) {
-        cookieMap.set(name, value);
-        changed = true;
-      }
-    }
-  }
-
-  return { merged: serializeCookieMap(cookieMap), changed };
 }
 
 function githubCookies(header: string) {
@@ -91,9 +42,8 @@ function githubCookies(header: string) {
 
 async function addGithubCookies(context: BrowserContext, header: string) {
   const cookies = githubCookies(header);
-  for (const cookie of cookies) {
-    await context.addCookies([cookie]).catch(() => undefined);
-  }
+  if (!cookies.some((cookie) => cookie.name === 'user_session')) throw new Error('GitHub cookie must include user_session');
+  await context.addCookies(cookies);
 }
 
 const GH_BROWSER_HEADERS = {
@@ -109,7 +59,7 @@ const GH_BROWSER_HEADERS = {
   'Upgrade-Insecure-Requests': '1',
 };
 
-async function fetchOAuthState(baseUrl: string): Promise<string | null> {
+async function fetchOAuthState(baseUrl: string, sessionCookies: Map<string, string>): Promise<string | null> {
   try {
     const res = await fetch(`${baseUrl}/api/oauth/state`, {
       method: 'GET',
@@ -123,6 +73,7 @@ async function fetchOAuthState(baseUrl: string): Promise<string | null> {
         'Sec-Fetch-Site': 'same-origin',
       },
     });
+    mergeSetCookies(sessionCookies, res);
     const text = await res.text();
     const json = JSON.parse(text);
     if (json && json.success && json.data) return String(json.data);
@@ -130,25 +81,19 @@ async function fetchOAuthState(baseUrl: string): Promise<string | null> {
   return null;
 }
 
-async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string): Promise<ClaimResult> {
-  let activeCookie = rawCookie;
-  let cookieHasChanged = false;
-
-  const state = await fetchOAuthState(baseUrl);
+async function pureHttpClaim(baseUrl: string, cookies: Map<string, string>, label: string): Promise<ClaimResult> {
+  const sessionCookies = new Map<string, string>();
+  const state = await fetchOAuthState(baseUrl, sessionCookies);
   if (!state) throw new Error(`Failed to obtain OAuth state from ${baseUrl}`);
 
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
   const ghRes = await fetch(authUrl, {
     method: 'GET',
-    headers: { ...GH_BROWSER_HEADERS, Cookie: activeCookie, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    headers: { ...GH_BROWSER_HEADERS, Cookie: serializeCookieMap(cookies), Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
     redirect: 'manual'
   });
 
-  const getMerge = mergeSetCookies(activeCookie, ghRes);
-  if (getMerge.changed) {
-    activeCookie = getMerge.merged;
-    cookieHasChanged = true;
-  }
+  mergeSetCookies(cookies, ghRes);
 
   let code: string | null = null;
   const loc = ghRes.headers.get('location') || '';
@@ -165,7 +110,7 @@ async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string):
         headers: {
           ...GH_BROWSER_HEADERS,
           'Content-Type': 'application/x-www-form-urlencoded',
-          Cookie: activeCookie,
+          Cookie: serializeCookieMap(cookies),
           Origin: 'https://github.com',
           Referer: authUrl,
           'Sec-Fetch-Site': 'same-origin'
@@ -174,11 +119,7 @@ async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string):
         redirect: 'manual'
       });
 
-      const postMerge = mergeSetCookies(activeCookie, postRes);
-      if (postMerge.changed) {
-        activeCookie = postMerge.merged;
-        cookieHasChanged = true;
-      }
+      mergeSetCookies(cookies, postRes);
 
       const postLoc = postRes.headers.get('location') || '';
       try { code = new URL(postLoc, 'https://github.com').searchParams.get('code'); } catch { /* ignore */ }
@@ -189,30 +130,31 @@ async function pureHttpClaim(baseUrl: string, rawCookie: string, label: string):
 
   const cbRes = await fetch(`${baseUrl}/api/oauth/github?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`, {
     method: 'GET',
-    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${baseUrl}/login`, Origin: baseUrl }
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${baseUrl}/login`, Origin: baseUrl, Cookie: serializeCookieMap(sessionCookies) }
   });
 
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
-  const updatedCookie = cookieHasChanged ? activeCookie : undefined;
 
   if (body?.success && body.data) {
     const u = body.data.user || body.data;
-    return { message: `Success (HTTP) · ${u.display_name || u.username || label}`, updatedCookie };
+    return { message: `Success (HTTP) · ${u.display_name || u.username || label}` };
   }
-  if (cbRes.status === 200 && !body?.message) {
-    return { message: `Success (HTTP) · ${label}`, updatedCookie };
+  if (body?.success === true) {
+    return { message: `Success (HTTP) · ${label}` };
   }
   throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
 }
 
-async function browserClaim(baseUrl: string, rawCookie: string, label: string): Promise<ClaimResult> {
+async function browserClaim(baseUrl: string, github: Map<string, string>, label: string): Promise<ClaimResult> {
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox']
   });
 
+  let context: BrowserContext | undefined;
+  let seeded = false;
   try {
-    const context = await browser.newContext({
+    context = await browser.newContext({
       userAgent: USER_AGENT,
       viewport: { width: 1280, height: 720 },
       locale: 'en-US',
@@ -224,7 +166,8 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string): 
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
 
-    await addGithubCookies(context, rawCookie);
+    await addGithubCookies(context, serializeCookieMap(github));
+    seeded = true;
     const page = await context.newPage();
 
     // 1. Visit baseUrl/login to execute WAF challenge
@@ -279,25 +222,13 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string): 
 
     await page.waitForTimeout(3000);
 
-    // Capture latest GitHub cookies from browser context
-    const ghContextCookies = await context.cookies('https://github.com');
-    const cookieMap = parseCookieString(rawCookie);
-    let cookieHasChanged = false;
-    for (const c of ghContextCookies) {
-      if (c.value && cookieMap.get(c.name) !== c.value) {
-        cookieMap.set(c.name, c.value);
-        cookieHasChanged = true;
-      }
-    }
-    const updatedCookie = cookieHasChanged ? serializeCookieMap(cookieMap) : undefined;
-
     const callbackBody = cbResponse?.url().includes('/api/oauth/github')
       ? await cbResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
       : null;
 
     if (callbackBody?.success && callbackBody.data) {
       const u = callbackBody.data.user || callbackBody.data;
-      return { message: `Success (GH Runner) · ${u.display_name || u.username || label}`, updatedCookie };
+      return { message: `Success (GH Runner) · ${u.display_name || u.username || label}` };
     }
 
     // 6. Check if session cookie exists on baseUrl
@@ -312,30 +243,32 @@ async function browserClaim(baseUrl: string, rawCookie: string, label: string): 
 
       if (userRes?.success && userRes.data) {
         const u = userRes.data;
-        return { message: `Success (GH Runner) · ${u.display_name || u.username || label}`, updatedCookie };
+        return { message: `Success (GH Runner) · ${u.display_name || u.username || label}` };
       }
     }
 
     throw new Error(callbackBody?.message || 'OAuth callback failed to authenticate with AgentRouter');
   } finally {
-    await browser.close();
+    try {
+      if (context && seeded) await captureGithubCookies(github, context);
+    } finally { await browser.close(); }
   }
 }
 
-async function claimAccount(rawCookie: string, label: string): Promise<ClaimResult> {
+async function claimAccount(cookies: Map<string, string>, label: string): Promise<ClaimResult> {
   let lastErr = '';
 
   for (const baseUrl of CANDIDATE_URLS) {
     // 1. Try Pure HTTP first
     try {
-      return await pureHttpClaim(baseUrl, rawCookie, label);
+      return await pureHttpClaim(baseUrl, cookies, label);
     } catch (httpErr) {
       lastErr = httpErr instanceof Error ? httpErr.message : String(httpErr);
     }
 
     // 2. Fallback to Stealth Chromium Playwright
     try {
-      return await browserClaim(baseUrl, rawCookie, label);
+      return await browserClaim(baseUrl, cookies, label);
     } catch (browserErr) {
       lastErr = browserErr instanceof Error ? browserErr.message : String(browserErr);
     }
@@ -365,26 +298,26 @@ async function run() {
     rotateWarpIp();
 
     let result = '';
-    let updatedCookie: string | undefined;
+    const cookies = parseCookieString(acc.githubCookie);
+    const originalCookie = serializeCookieMap(cookies);
     try {
-      const outcome = await claimAccount(acc.githubCookie, acc.label);
+      const outcome = await claimAccount(cookies, acc.label);
       result = outcome.message;
-      updatedCookie = outcome.updatedCookie;
       console.log(`  -> ${result}`);
-      if (updatedCookie) {
-        console.log(`  -> Detected updated session cookie from GitHub. Syncing to DB…`);
-      }
     } catch (err) {
       result = `Failed: ${err instanceof Error ? err.message : String(err)}`;
       console.error(`  -> ${result}`);
     }
 
-    // Report back to worker (including updated cookie if refreshed)
-    await fetch(`${WORKER_URL}/api/runner/report`, {
+    const latestCookie = serializeCookieMap(cookies);
+    const updatedCookie = latestCookie !== originalCookie ? latestCookie : undefined;
+    // Report rotated cookies even when authentication failed.
+    const report = await fetch(`${WORKER_URL}/api/runner/report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ACCESS_CODE}` },
       body: JSON.stringify({ id: acc.id, result, updatedCookie })
-    }).catch((err) => console.error('  -> Failed to report back to worker:', err));
+    });
+    if (!report.ok) throw new Error(`Failed to persist claim/cookies: HTTP ${report.status}`);
 
     // Berikan jeda 5 detik antar akun
     if (i < accounts.length - 1) {

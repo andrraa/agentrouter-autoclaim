@@ -1,4 +1,5 @@
 import { launch, type BrowserWorker } from '@cloudflare/playwright';
+import { parseCookieString, serializeCookieMap, mergeSetCookies, captureGithubCookies } from './cookies';
 
 interface Env {
   DB: D1Database;
@@ -37,19 +38,12 @@ function sessionUserId(value: string) {
   } catch { return undefined; }
 }
 function githubCookies(header: string) {
-  const cookies = new Map<string, { name: string; value: string; url: string }>();
-  for (const part of header.replace(/[\r\n\t]+/g, ' ').split(';').map((value) => value.trim()).filter(Boolean)) {
-    const at = part.indexOf('=');
-    const name = part.slice(0, at).trim();
-    const value = part.slice(at + 1).trim();
-    if (at > 0 && name && value && !/[\s={}?&]/.test(name)) cookies.set(name, { name, value, url: 'https://github.com' });
-  }
-  return [...cookies.values()];
+  return [...parseCookieString(header)].map(([name, value]) => ({ name, value, url: 'https://github.com' }));
 }
 async function addGithubCookies(context: import('@cloudflare/playwright').BrowserContext, header: string) {
   const cookies = githubCookies(header);
   if (!cookies.some((cookie) => cookie.name === 'user_session')) throw new Error('GitHub cookie must include user_session');
-  for (const cookie of cookies) await context.addCookies([cookie]).catch(() => undefined);
+  await context.addCookies(cookies);
 }
 async function waitForSession(context: import('@cloudflare/playwright').BrowserContext) {
   for (let attempt = 0; attempt < 30; attempt++) {
@@ -59,7 +53,7 @@ async function waitForSession(context: import('@cloudflare/playwright').BrowserC
   }
   return undefined;
 }
-async function oauthState(page?: import('@cloudflare/playwright').Page) {
+async function oauthState(page?: import('@cloudflare/playwright').Page, sessionCookies = new Map<string, string>()) {
   if (page) {
     const fromPage = await page.evaluate(async (url) => {
       const res = await fetch(url, { headers: { accept: 'application/json' } });
@@ -68,9 +62,11 @@ async function oauthState(page?: import('@cloudflare/playwright').Page) {
     if (fromPage?.success && fromPage.data) return fromPage.data;
   }
 
+  if (page) throw new Error('Failed to get OAuth state in browser session');
   const response = await fetch(`${BASE}/api/oauth/state`, {
     headers: { accept: 'application/json, text/plain, */*', origin: BASE, referer: `${BASE}/login`, 'user-agent': USER_AGENT }
   });
+  mergeSetCookies(sessionCookies, response);
   const text = await response.text();
   let body: { success?: boolean; data?: string; message?: string } | null = null;
   try {
@@ -98,15 +94,17 @@ async function readSelf(page: import('@cloudflare/playwright').Page) {
   }
   throw new Error('AgentRouter self API was blocked by the WAF');
 }
-async function pureHttpClaim(rawCookie: string, label: string) {
-  const state = await oauthState();
+async function pureHttpClaim(cookies: Map<string, string>, label: string) {
+  const sessionCookies = new Map<string, string>();
+  const state = await oauthState(undefined, sessionCookies);
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&state=${encodeURIComponent(state)}&scope=user:email`;
   const ghRes = await fetch(authUrl, {
     method: 'GET',
-    headers: { 'User-Agent': USER_AGENT, Cookie: rawCookie, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    headers: { 'User-Agent': USER_AGENT, Cookie: serializeCookieMap(cookies), Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
     redirect: 'manual'
   });
 
+  mergeSetCookies(cookies, ghRes);
   let code: string | null = null;
   const loc = ghRes.headers.get('location') || '';
   if ((ghRes.status === 301 || ghRes.status === 302) && loc) {
@@ -119,10 +117,11 @@ async function pureHttpClaim(rawCookie: string, label: string) {
     if (tokenMatch?.[1]) {
       const postRes = await fetch('https://github.com/login/oauth/authorize', {
         method: 'POST',
-        headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded', Cookie: rawCookie },
+        headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded', Cookie: serializeCookieMap(cookies) },
         body: new URLSearchParams({ authenticity_token: tokenMatch[1], client_id: CLIENT_ID, state, scope: 'user:email', authorize: '1' }).toString(),
         redirect: 'manual'
       });
+      mergeSetCookies(cookies, postRes);
       const postLoc = postRes.headers.get('location') || '';
       try { code = new URL(postLoc, 'https://github.com').searchParams.get('code'); } catch { /* ignore */ }
     }
@@ -132,7 +131,7 @@ async function pureHttpClaim(rawCookie: string, label: string) {
 
   const cbRes = await fetch(`${BASE}/api/oauth/github?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`, {
     method: 'GET',
-    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${BASE}/login`, Origin: BASE }
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${BASE}/login`, Origin: BASE, Cookie: serializeCookieMap(sessionCookies) }
   });
 
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
@@ -141,7 +140,7 @@ async function pureHttpClaim(rawCookie: string, label: string) {
     const accountName = u.display_name || u.username || label;
     return `Success (HTTP) · ${accountName}`;
   }
-  if (cbRes.status === 200 && !body?.message) {
+  if (body?.success === true) {
     return `Success (HTTP) · ${label}`;
   }
   throw new Error(body?.message || `HTTP OAuth returned ${cbRes.status}`);
@@ -175,15 +174,20 @@ async function notifyTelegram(env: Env, text: string) {
 async function claim(account: Account, env: Env) {
   let result = '';
   const rawCookie = await decrypt(account.github_cookie, env);
+  const cookies = parseCookieString(rawCookie);
+  const originalCookie = serializeCookieMap(cookies);
   try {
-    result = await pureHttpClaim(rawCookie, account.label);
+    result = await pureHttpClaim(cookies, account.label);
   } catch (httpError) {
     console.log(`[Pure HTTP fallback to browser] ${httpError instanceof Error ? httpError.message : String(httpError)}`);
     try {
       const browser = await launch(env.BROWSER);
+      let context: import('@cloudflare/playwright').BrowserContext | undefined;
+      let seeded = false;
       try {
-        const context = await browser.newContext({ userAgent: USER_AGENT });
-        await addGithubCookies(context, rawCookie);
+        context = await browser.newContext({ userAgent: USER_AGENT });
+        await addGithubCookies(context, serializeCookieMap(cookies));
+        seeded = true;
         const page = await context.newPage();
         await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
         const state = await oauthState(page);
@@ -217,7 +221,11 @@ async function claim(account: Account, env: Env) {
           const accountName = user.display_name || user.username || account.label;
           result = `Success (Browser) · ${accountName}`;
         }
-      } finally { await browser.close(); }
+      } finally {
+        try {
+          if (context && seeded) await captureGithubCookies(cookies, context);
+        } finally { await browser.close(); }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       result = `Failed: ${/429|rate limit/i.test(message) ? 'Cloudflare Browser Rendering rate limit exceeded; wait before retrying' : message.replace(/(user_session|_gh_sess)=[^;\s]+/g, '$1=[redacted]')}`;
@@ -225,10 +233,16 @@ async function claim(account: Account, env: Env) {
   }
   const createdAt = new Date().toISOString();
   const success = result.startsWith('Success');
-  await env.DB.batch([
+  const dbOps = [
     env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(createdAt, result, account.id),
     env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, result, createdAt)
-  ]);
+  ];
+  const updatedCookie = serializeCookieMap(cookies);
+  if (updatedCookie !== originalCookie) {
+    dbOps.push(env.DB.prepare('UPDATE accounts SET github_cookie = ? WHERE id = ? AND github_cookie = ?')
+      .bind(await encrypt(updatedCookie, env), account.id, account.github_cookie));
+  }
+  await env.DB.batch(dbOps);
   const emoji = success ? '✅' : '❌';
   const timeStr = new Date(createdAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
   await notifyTelegram(env, `<b>${emoji} AgentRouter Claim</b>\n<b>Account:</b> ${account.label}\n<b>Status:</b> ${result}\n<b>Time:</b> ${timeStr} WIB`);
@@ -262,7 +276,7 @@ async function api(request: Request, env: Env) {
       env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, body.result, createdAt)
     ];
 
-    if (body.updatedCookie && body.updatedCookie.includes('=')) {
+    if (typeof body.updatedCookie === 'string' && (!body.updatedCookie || body.updatedCookie.includes('='))) {
       const encrypted = await encrypt(body.updatedCookie, env);
       dbOps.push(env.DB.prepare('UPDATE accounts SET github_cookie = ? WHERE id = ?').bind(encrypted, account.id));
     }
