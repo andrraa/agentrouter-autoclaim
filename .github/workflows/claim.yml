@@ -2,7 +2,7 @@ name: AgentRouter Auto Claim
 
 on:
   schedule:
-    - cron: '5 0 * * *' # Daily at 00:05 UTC (07:05 WIB)
+    - cron: '5 22 * * *' # Daily at 22:05 UTC (05:05 WIB)
   workflow_dispatch:
 
 jobs:
