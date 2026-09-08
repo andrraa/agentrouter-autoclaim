@@ -285,16 +285,26 @@ async function api(request: Request, env: Env) {
       env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, body.result, createdAt)
     ];
 
-    if (typeof body.updatedCookie === 'string' && (!body.updatedCookie || body.updatedCookie.includes('='))) {
+    if (body.updatedCookie !== undefined && (typeof body.updatedCookie !== 'string' || (body.updatedCookie && !body.updatedCookie.includes('=')))) {
+      return json({ error: 'Invalid updatedCookie' }, 400);
+    }
+    if (typeof body.updatedCookie === 'string') {
       const encrypted = await encrypt(body.updatedCookie, env);
       dbOps.push(env.DB.prepare('UPDATE accounts SET github_cookie = ? WHERE id = ?').bind(encrypted, account.id));
     }
 
     await env.DB.batch(dbOps);
+    let sessionMatches: boolean | null = null;
+    if (typeof body.updatedCookie === 'string') {
+      const saved = await env.DB.prepare('SELECT github_cookie FROM accounts WHERE id = ?').bind(account.id).first<{ github_cookie: string }>();
+      sessionMatches = !!saved && await decrypt(saved.github_cookie, env) === body.updatedCookie;
+      console.log('[debug] cookie.persistence', { id: account.id, sessionMatches });
+      if (!sessionMatches) return json({ error: 'Cookie persistence verification failed', sessionMatches }, 500);
+    }
     const emoji = success ? '✅' : '❌';
     const timeStr = new Date(createdAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
     await notifyTelegram(env, `<b>${emoji} AgentRouter Claim</b>\n<b>Account:</b> ${account.label}\n<b>Status:</b> ${body.result}\n<b>Time:</b> ${timeStr} WIB`);
-    return json({ ok: true });
+    return json({ ok: true, sessionMatches });
   }
   if (request.method === 'GET' && url.pathname === '/api/accounts') {
     const { results } = await env.DB.prepare('SELECT id, label, enabled, last_claim_at, last_result FROM accounts ORDER BY id DESC').all();

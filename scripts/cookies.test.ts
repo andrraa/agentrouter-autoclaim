@@ -173,13 +173,36 @@ request = async (input, init) => {
   if (String(input).endsWith('/api/runner/accounts')) return Response.json([{ id: 1, label: 'test', githubCookie: 'user_session=fresh' }]);
   if (String(input).endsWith('/api/runner/report')) {
     report = JSON.parse(String(init?.body));
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, sessionMatches: true });
   }
   return oauthRequest(input, init);
 };
 await runner.run();
 assert.match(report.result, /^Failed:/);
 assert.equal(report.updatedCookie, 'user_session=post-2');
+// Verify the report endpoint reads encrypted cookies back, and detects a stale write.
+let storedCookie = await worker.encrypt('user_session=old', env);
+let dropWrite = false;
+const reportEnv = { ...env, ACCESS_CODE: 'test-access', DB: {
+  prepare(sql: string) { return { bind(...values: unknown[]) { return {
+    sql, values,
+    async first() { return sql.includes('SELECT github_cookie') ? { github_cookie: storedCookie } : { id: 1, label: 'test' }; }
+  }; } }; },
+  async batch(ops: any[]) {
+    const update = ops.find((op) => op.sql.includes('SET github_cookie'));
+    if (update && !dropWrite) storedCookie = update.values[0];
+  }
+} };
+for (const mismatch of [false, true]) {
+  dropWrite = mismatch;
+  const response = await worker.api(new Request('https://worker.test/api/runner/report', {
+    method: 'POST', headers: { authorization: 'Bearer test-access', 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 1, result: 'Success', updatedCookie: `user_session=${mismatch ? 'not-saved' : 'saved'}` })
+  }), reportEnv);
+  assert.equal(response.status, mismatch ? 500 : 200);
+  assert.equal((await response.json()).sessionMatches, !mismatch);
+}
+
 runner.traceResponse('test', new Response(null, { status: 302, headers: {
   location: 'https://github.com/login?code=secret-code&state=secret-state',
   'set-cookie': 'user_session=secret-cookie; Secure'

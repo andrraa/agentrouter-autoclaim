@@ -211,6 +211,10 @@ async function browserClaim(baseUrl: string, github: Map<string, string>, label:
     ]);
     cbResponse = navResponse;
 
+    if (new URL(page.url()).origin === 'https://github.com' && new URL(page.url()).pathname === '/login') {
+      throw new Error('GitHub cookie is invalid or expired');
+    }
+
     // 5. Click Authorize if consent button is displayed
     const authorize = page.getByRole('button', { name: /authorize/i }).first();
     if (await authorize.isVisible().catch(() => false)) {
@@ -291,6 +295,9 @@ async function claimAccount(cookies: Map<string, string>, label: string): Promis
     } catch (browserErr) {
       lastErr = browserErr instanceof Error ? browserErr.message : String(browserErr);
       debug('browser.failed', { endpoint: safeEndpoint(baseUrl), loginRejected: lastErr === 'GitHub cookie is invalid or expired' });
+      if (lastErr === 'GitHub cookie is invalid or expired') {
+        throw new Error('GitHub session rejected. Update the GitHub cookie.');
+      }
     }
   }
 
@@ -337,7 +344,12 @@ async function run() {
       body: JSON.stringify({ id: acc.id, result, updatedCookie })
     });
     debug('worker.report', { id: acc.id, status: report.status, cookieChanged: updatedCookie !== undefined });
+    const receipt = await report.json<{ sessionMatches?: boolean | null }>().catch(() => null);
+    debug('worker.cookieVerification', { id: acc.id, sessionMatches: receipt?.sessionMatches ?? null });
     if (!report.ok) throw new Error(`Failed to persist claim/cookies: HTTP ${report.status}`);
+    if (updatedCookie !== undefined && receipt?.sessionMatches !== true) {
+      throw new Error('Worker did not verify persisted cookies');
+    }
 
     // Berikan jeda 5 detik antar akun
     if (i < accounts.length - 1) {
