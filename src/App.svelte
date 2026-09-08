@@ -19,6 +19,9 @@
   let authenticated = false;
   let refreshing = false;
   let triggering = false;
+  let showTriggerConfirm = false;
+  let triggerAccessCode = '';
+  let triggerError = '';
   let accountToDelete: Account | null = null;
   let deleting = false;
   let accountToEdit: Account | null = null;
@@ -83,15 +86,40 @@
     return body;
   }
 
-  async function triggerTest() {
-    if (triggering) return;
+  function openTriggerConfirm() {
+    triggerAccessCode = '';
+    triggerError = '';
+    showTriggerConfirm = true;
+  }
+
+  async function submitTrigger() {
+    if (!triggerAccessCode.trim()) {
+      triggerError = 'Access code is required.';
+      return;
+    }
     triggering = true;
-    message = 'Sending GitHub Actions trigger…';
+    triggerError = '';
     try {
-      await call('/api/runner/trigger', { method: 'POST' });
-      message = 'GitHub Actions trigger accepted. Claim is not finished yet; refresh after the workflow completes.';
+      const res = await fetch('/api/runner/trigger', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${triggerAccessCode.trim()}`,
+        },
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        if (res.status === 401) {
+          triggerError = 'Invalid access code.';
+          return;
+        }
+        throw new Error(body?.error || 'Trigger failed');
+      }
+      showTriggerConfirm = false;
+      triggerAccessCode = '';
+      message = 'GitHub Actions trigger accepted. Claim is executing; refresh after the workflow completes.';
     } catch (e) {
-      message = (e as Error).message;
+      triggerError = (e as Error).message;
     } finally {
       triggering = false;
     }
@@ -324,6 +352,60 @@
   </div>
 {/if}
 
+{#if showTriggerConfirm}
+  <div class="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-5 sm:p-6 shadow-2xl">
+      <div class="mb-4 space-y-1.5">
+        <h3 class="text-sm font-semibold tracking-tight text-zinc-100">Run GitHub Actions</h3>
+        <p class="text-xs text-zinc-400">
+          Enter your dashboard access code to trigger the GitHub Actions claim workflow now.
+        </p>
+      </div>
+      <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); submitTrigger(); }}>
+        <div class="space-y-1.5">
+          <Label for="trigger-code" class="text-xs font-normal text-zinc-400">
+            Access code <span class="text-red-400/80 ml-0.5">*</span>
+          </Label>
+          <Input
+            id="trigger-code"
+            type="password"
+            placeholder="Enter access code"
+            bind:value={triggerAccessCode}
+            autocomplete="current-password"
+            class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {triggerError ? 'border-red-500/80' : ''}"
+            oninput={() => triggerError = ''}
+            autofocus
+          />
+          {#if triggerError}
+            <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{triggerError}</p>
+          {/if}
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            class="border-zinc-800 text-xs text-zinc-300 hover:bg-zinc-900"
+            disabled={triggering}
+            onclick={() => showTriggerConfirm = false}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            class="border border-zinc-700 bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-zinc-200 hover:text-zinc-900"
+            disabled={triggering}
+          >
+            {triggering ? 'Triggering…' : 'Run Actions'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
 <main class="mx-auto min-h-screen w-full max-w-4xl space-y-6 px-3.5 py-6 sm:px-6 sm:py-12 transition-all" class:blur-sm={!authenticated} class:pointer-events-none={!authenticated}>
   <!-- Header -->
   <header class="flex flex-col gap-4 border-b border-zinc-800/80 pb-5 sm:flex-row sm:items-center sm:justify-between">
@@ -339,8 +421,8 @@
 
     {#if authenticated}
       <div class="flex items-center gap-2 self-end sm:self-auto">
-        <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={triggering} onclick={triggerTest}>
-          {triggering ? 'Triggering…' : 'Test GH Actions'}
+        <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={triggering} onclick={openTriggerConfirm}>
+          {triggering ? 'Triggering…' : 'Run GH Actions'}
         </Button>
         <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={refreshing} onclick={load}>
           {refreshing ? 'Refreshing…' : 'Refresh'}
