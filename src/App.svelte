@@ -215,11 +215,11 @@
       <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); saveEdit(); }}>
         <div class="space-y-1.5">
           <Label for="edit-label" class="text-xs font-normal text-zinc-400">
-            Account label <span class="text-red-400/80 ml-0.5">*</span>
+            Label <span class="text-red-400/80 ml-0.5">*</span>
           </Label>
           <Input
             id="edit-label"
-            placeholder="Account label"
+            placeholder="e.g. Work, Personal"
             bind:value={editForm.label}
             autocomplete="off"
             class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {editErrors.label ? 'border-red-500/80' : ''}"
@@ -232,14 +232,35 @@
         </div>
 
         <div class="space-y-1.5">
-          <Label for="edit-email" class="text-xs text-zinc-400">AgentRouter email</Label>
-          <Input id="edit-email" type="email" required maxlength={254} bind:value={editForm.email} autocomplete="off" class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100" />
-          {#if editErrors.email}<p class="text-xs text-red-400">{editErrors.email}</p>{/if}
+          <Label for="edit-email" class="text-xs font-normal text-zinc-400">
+            Email <span class="text-red-400/80 ml-0.5">*</span>
+          </Label>
+          <Input
+            id="edit-email"
+            type="email"
+            required
+            maxlength={254}
+            placeholder="name@example.com"
+            bind:value={editForm.email}
+            autocomplete="off"
+            class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {editErrors.email ? 'border-red-500/80' : ''}"
+            oninput={() => editErrors.email = ''}
+          />
+          {#if editErrors.email}<p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{editErrors.email}</p>{/if}
         </div>
         <div class="space-y-1.5">
-          <Label for="edit-password" class="text-xs text-zinc-400">AgentRouter password</Label>
-          <Input id="edit-password" type="password" maxlength={1024} placeholder="Leave empty to keep existing password" bind:value={editForm.password} autocomplete="new-password" class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100" />
-          {#if editErrors.password}<p class="text-xs text-red-400">{editErrors.password}</p>{/if}
+          <Label for="edit-password" class="text-xs font-normal text-zinc-400">Password</Label>
+          <Input
+            id="edit-password"
+            type="password"
+            maxlength={1024}
+            placeholder="Leave empty to keep existing password"
+            bind:value={editForm.password}
+            autocomplete="new-password"
+            class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {editErrors.password ? 'border-red-500/80' : ''}"
+            oninput={() => editErrors.password = ''}
+          />
+          {#if editErrors.password}<p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{editErrors.password}</p>{/if}
         </div>
 
         <div class="flex items-center justify-end gap-2 pt-1">
@@ -353,7 +374,7 @@
         <div class="grid gap-3.5 sm:grid-cols-[1fr_1.5fr_1.5fr_auto] sm:items-start">
           <div class="space-y-1.5">
             <Label for="account-label" class="text-xs font-normal text-zinc-400">
-              Account label <span class="text-red-400/80 ml-0.5">*</span>
+              Label <span class="text-red-400/80 ml-0.5">*</span>
             </Label>
             <Input
               id="account-label"
@@ -369,14 +390,39 @@
           </div>
 
           <div class="space-y-1.5">
-            <Label for="account-email" class="text-xs text-zinc-400">AgentRouter email *</Label>
-            <Input id="account-email" type="email" required maxlength={254} bind:value={form.email} autocomplete="off" class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100" />
-            {#if formErrors.email}<p class="text-xs text-red-400">{formErrors.email}</p>{/if}
+            <Label for="account-email" class="text-xs font-normal text-zinc-400">
+              Email <span class="text-red-400/80 ml-0.5">*</span>
+            </Label>
+            <Input
+              id="account-email"
+              type="email"
+              required
+              maxlength={254}
+              placeholder="name@example.com"
+              bind:value={form.email}
+              autocomplete="off"
+              class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {formErrors.email ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
+              oninput={() => formErrors.email = ''}
+            />
+            {#if formErrors.email}<p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{formErrors.email}</p>{/if}
           </div>
+
           <div class="space-y-1.5">
-            <Label for="account-password" class="text-xs text-zinc-400">AgentRouter password *</Label>
-            <Input id="account-password" type="password" required maxlength={1024} bind:value={form.password} autocomplete="new-password" class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100" />
-            {#if formErrors.password}<p class="text-xs text-red-400">{formErrors.password}</p>{/if}
+            <Label for="account-password" class="text-xs font-normal text-zinc-400">
+              Password <span class="text-red-400/80 ml-0.5">*</span>
+            </Label>
+            <Input
+              id="account-password"
+              type="password"
+              required
+              maxlength={1024}
+              placeholder="••••••••"
+              bind:value={form.password}
+              autocomplete="new-password"
+              class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {formErrors.password ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
+              oninput={() => formErrors.password = ''}
+            />
+            {#if formErrors.password}<p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{formErrors.password}</p>{/if}
           </div>
 
           <div class="pt-1 sm:pt-[22px]">
