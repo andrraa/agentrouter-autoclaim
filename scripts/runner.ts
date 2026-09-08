@@ -1,4 +1,3 @@
-import { execSync } from 'child_process';
 import { chromium, type BrowserContext } from 'playwright';
 import { parseCookieString, serializeCookieMap, mergeSetCookies, captureGithubCookies } from '../src/cookies';
 
@@ -16,16 +15,26 @@ if (!WORKER_URL || !ACCESS_CODE) {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function rotateWarpIp(): boolean {
+// Only allowlisted metadata: never response bodies, error messages or OAuth query strings.
+function debug(stage: string, details: Record<string, unknown> = {}) {
+  console.log(`[debug] ${stage} ${JSON.stringify(details)}`);
+}
+
+function safeEndpoint(value: string, base = 'https://github.com') {
   try {
-    execSync('warp-cli disconnect 2>/dev/null || true', { stdio: 'ignore' });
-    execSync('sleep 1', { stdio: 'ignore' });
-    execSync('warp-cli connect 2>/dev/null || true', { stdio: 'ignore' });
-    execSync('sleep 3', { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+    const url = new URL(value, base);
+    const paths = ['/login', '/session', '/login/oauth/authorize', '/api/oauth/state', '/api/oauth/github', '/api/user/self', '/console', '/'];
+    return `${url.origin}${paths.includes(url.pathname) ? url.pathname : '/[other]'}`;
+  } catch { return '[invalid URL]'; }
+}
+
+function traceResponse(stage: string, response: Response) {
+  debug(stage, {
+    status: response.status,
+    redirect: response.headers.get('location') ? safeEndpoint(response.headers.get('location')!) : null,
+    json: response.headers.get('content-type')?.includes('application/json') || false,
+    setCookies: response.headers.getSetCookie().map((header) => header.split('=')[0])
+  });
 }
 
 interface ClaimResult {
@@ -47,14 +56,6 @@ async function addGithubCookies(context: BrowserContext, header: string) {
 const GH_BROWSER_HEADERS = {
   'User-Agent': USER_AGENT,
   'Accept-Language': 'en-US,en;q=0.9',
-  'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
-  'Sec-Ch-Ua-Mobile': '?0',
-  'Sec-Ch-Ua-Platform': '"Windows"',
-  'Sec-Fetch-Dest': 'document',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'cross-site',
-  'Sec-Fetch-User': '?1',
-  'Upgrade-Insecure-Requests': '1',
 };
 
 async function fetchOAuthState(baseUrl: string, sessionCookies: Map<string, string>): Promise<string | null> {
@@ -71,11 +72,12 @@ async function fetchOAuthState(baseUrl: string, sessionCookies: Map<string, stri
         'Sec-Fetch-Site': 'same-origin',
       },
     });
+    traceResponse('http.state', res);
     mergeSetCookies(sessionCookies, res);
     const text = await res.text();
     const json = JSON.parse(text);
     if (json && json.success && json.data) return String(json.data);
-  } catch { /* WAF block on direct fetch */ }
+  } catch { debug('http.state.unavailable'); }
   return null;
 }
 
@@ -91,6 +93,7 @@ async function pureHttpClaim(baseUrl: string, cookies: Map<string, string>, labe
     redirect: 'manual'
   });
 
+  traceResponse('http.github.authorize', ghRes);
   mergeSetCookies(cookies, ghRes);
 
   let code: string | null = null;
@@ -117,6 +120,7 @@ async function pureHttpClaim(baseUrl: string, cookies: Map<string, string>, labe
         redirect: 'manual'
       });
 
+      traceResponse('http.github.consent', postRes);
       mergeSetCookies(cookies, postRes);
 
       const postLoc = postRes.headers.get('location') || '';
@@ -131,6 +135,7 @@ async function pureHttpClaim(baseUrl: string, cookies: Map<string, string>, labe
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', Referer: `${baseUrl}/login`, Origin: baseUrl, Cookie: serializeCookieMap(sessionCookies) }
   });
 
+  traceResponse('http.callback', cbRes);
   const body = await cbRes.json<{ success?: boolean; message?: string; data?: Record<string, any> }>().catch(() => null);
 
   if (body?.success && body.data) {
@@ -189,6 +194,7 @@ async function browserClaim(baseUrl: string, github: Map<string, string>, label:
       await page.waitForTimeout(2000);
     }
 
+    debug('browser.state', { endpoint: safeEndpoint(baseUrl), obtained: state !== null });
     if (!state) throw new Error(`Could not obtain OAuth state from ${baseUrl}`);
 
     // 3. Visit GitHub to ensure session is primed
@@ -220,10 +226,16 @@ async function browserClaim(baseUrl: string, github: Map<string, string>, label:
 
     await page.waitForTimeout(3000);
 
+    debug('browser.callback', {
+      page: safeEndpoint(page.url()),
+      received: cbResponse !== null,
+      status: cbResponse?.status() ?? null
+    });
     const callbackBody = cbResponse?.url().includes('/api/oauth/github')
       ? await cbResponse.json().catch(() => null) as { success?: boolean; message?: string; data?: Record<string, any> } | null
       : null;
 
+    debug('browser.callback.validation', { success: callbackBody?.success === true, hasData: !!callbackBody?.data });
     if (callbackBody?.success && callbackBody.data) {
       const u = callbackBody.data.user || callbackBody.data;
       return { message: `Success (GH Runner) · ${u.display_name || u.username || label}` };
@@ -233,12 +245,14 @@ async function browserClaim(baseUrl: string, github: Map<string, string>, label:
     const cookies = await context.cookies(new URL(baseUrl).origin);
     const hasSession = cookies.some((c) => c.name === 'session');
 
+    debug('browser.session', { present: hasSession });
     if (hasSession) {
       const userRes = await page.evaluate(async (url) => {
         const res = await fetch(url, { headers: { accept: 'application/json' } });
         return res.json().catch(() => null);
       }, `${baseUrl}/api/user/self`).catch(() => null) as { success?: boolean; data?: Record<string, any> } | null;
 
+      debug('browser.self', { success: userRes?.success === true, hasData: !!userRes?.data });
       if (userRes?.success && userRes.data) {
         const u = userRes.data;
         return { message: `Success (GH Runner) · ${u.display_name || u.username || label}` };
@@ -248,7 +262,11 @@ async function browserClaim(baseUrl: string, github: Map<string, string>, label:
     throw new Error(callbackBody?.message || 'OAuth callback failed to authenticate with AgentRouter');
   } finally {
     try {
-      if (context && seeded) await captureGithubCookies(github, context);
+      if (context && seeded) {
+        const before = serializeCookieMap(github);
+        await captureGithubCookies(github, context);
+        debug('browser.cookies', { changed: before !== serializeCookieMap(github), names: [...github.keys()] });
+      }
     } finally { await browser.close(); }
   }
 }
@@ -259,16 +277,20 @@ async function claimAccount(cookies: Map<string, string>, label: string): Promis
   for (const baseUrl of CANDIDATE_URLS) {
     // 1. Try Pure HTTP first
     try {
+      debug('http.start', { endpoint: safeEndpoint(baseUrl), hasSession: cookies.has('user_session') });
       return await pureHttpClaim(baseUrl, cookies, label);
     } catch (httpErr) {
       lastErr = httpErr instanceof Error ? httpErr.message : String(httpErr);
+      debug('http.failed', { endpoint: safeEndpoint(baseUrl), loginRejected: lastErr === 'GitHub cookie invalid or expired' });
     }
 
     // 2. Fallback to Stealth Chromium Playwright
     try {
+      debug('browser.start', { endpoint: safeEndpoint(baseUrl) });
       return await browserClaim(baseUrl, cookies, label);
     } catch (browserErr) {
       lastErr = browserErr instanceof Error ? browserErr.message : String(browserErr);
+      debug('browser.failed', { endpoint: safeEndpoint(baseUrl), loginRejected: lastErr === 'GitHub cookie is invalid or expired' });
     }
   }
 
@@ -292,8 +314,7 @@ async function run() {
     const acc = accounts[i];
     console.log(`\n[${i + 1}/${accounts.length}] Processing [${acc.label}]…`);
 
-    // Rotasi IP Cloudflare WARP untuk tiap akun
-    rotateWarpIp();
+    debug('account.start', { id: acc.id });
 
     let result = '';
     const cookies = parseCookieString(acc.githubCookie);
@@ -315,6 +336,7 @@ async function run() {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ACCESS_CODE}` },
       body: JSON.stringify({ id: acc.id, result, updatedCookie })
     });
+    debug('worker.report', { id: acc.id, status: report.status, cookieChanged: updatedCookie !== undefined });
     if (!report.ok) throw new Error(`Failed to persist claim/cookies: HTTP ${report.status}`);
 
     // Berikan jeda 5 detik antar akun

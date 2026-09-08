@@ -5,6 +5,7 @@ import ts from 'typescript';
 import * as cookieHelpers from '../src/cookies';
 
 // Load the real entrypoints with fake network/browser/DB; never use real accounts.
+const diagnostics: string[] = [];
 let request: typeof fetch;
 let launch: () => Promise<unknown> = async () => { throw new Error('Browser unavailable'); };
 function load(path: string, exports: string) {
@@ -22,14 +23,14 @@ function load(path: string, exports: string) {
     },
     fetch: (...args: Parameters<typeof fetch>) => request(...args),
     process: { env: { WORKER_URL: 'https://worker.test', ACCESS_CODE: 'test' } },
-    console: { log() {}, error() {} },
+    console: { log(message: string) { if (message.startsWith('[debug]')) diagnostics.push(message); }, error() {} },
     crypto, atob, btoa, TextEncoder, TextDecoder, URL, URLSearchParams, Response,
     setTimeout: (callback: () => void) => { callback(); }
   });
   return result.exports;
 }
 const worker = load('src/worker.ts', 'pureHttpClaim, claim, encrypt, decrypt, githubCookies');
-const runner = load('scripts/runner.ts', 'pureHttpClaim, browserClaim, run, githubCookies');
+const runner = load('scripts/runner.ts', 'pureHttpClaim, browserClaim, run, githubCookies, traceResponse');
 const { parseCookieString, serializeCookieMap, mergeSetCookies, captureGithubCookies } = cookieHelpers;
 
 for (const entrypoint of [worker, runner]) {
@@ -152,4 +153,12 @@ request = async (input, init) => {
 await runner.run();
 assert.match(report.result, /^Failed:/);
 assert.equal(report.updatedCookie, 'user_session=post-2');
+runner.traceResponse('test', new Response(null, { status: 302, headers: {
+  location: 'https://github.com/login?code=secret-code&state=secret-state',
+  'set-cookie': 'user_session=secret-cookie; Secure'
+} }));
+assert(diagnostics.some((line) => line.includes('http.callback')));
+assert(diagnostics.some((line) => line.includes('worker.report')));
+assert(diagnostics.at(-1)!.includes('https://github.com/login'));
+assert(!diagnostics.join('\n').includes('secret-'), 'Diagnostics leaked OAuth/cookie values');
 console.log('Cookie regression checks passed (HTTP repeat, state isolation, failure persistence, browser cleanup, runner report).');
