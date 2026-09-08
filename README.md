@@ -21,7 +21,7 @@ AgentRouter provides daily reward credits upon authentication. This application 
 - **Backend API:** Cloudflare Workers (TypeScript)
 - **Database:** Cloudflare D1 (Serverless SQLite)
 - **Automation Runner:** GitHub Actions, Playwright (Chromium), Cloudflare WARP
-- **Security:** AES-GCM 256-bit encryption for sensitive session cookies at rest
+- **Security:** AES-GCM 256-bit encryption for sensitive AgentRouter credentials at rest
 
 ---
 
@@ -120,20 +120,18 @@ To run automated daily claims without hitting Cloudflare browser rate limits:
 3. Add the following repository secrets:
    - `WORKER_URL`: `https://agentrouter-autoclaim.<your-subdomain>.workers.dev`
    - `ACCESS_CODE`: `<YOUR_DASHBOARD_ACCESS_CODE>`
-4. The workflow (`.github/workflows/claim.yml`) runs automatically every day at **00:05 UTC (07:05 WIB)**.
-5. You can trigger a run manually at any time from the **Actions** tab by selecting **AgentRouter Auto Claim -> Run workflow**.
+4. The automated trigger runs daily via Cloudflare Cron (`5 22 * * *` UTC = **05:05 WIB**) dispatching GitHub Actions.
+5. You can trigger a run manually at any time from the dashboard via **Test GH Actions** or from the GitHub **Actions** tab.
 
 ---
 
 ## Adding Accounts
 
-1. Sign in to [GitHub](https://github.com) in your browser. Using an incognito window or separate browser profile is recommended to maintain session isolation.
-2. Open Developer Tools (`F12` or `Cmd + Option + I`) and navigate to the **Network** tab.
-3. Refresh the page, select any request sent to `github.com`, and locate the **Request Headers**.
-4. Copy the entire value of the `cookie` header. It must include at least `user_session` and `_gh_sess`.
-5. Open your deployed dashboard, authenticate with your `ACCESS_CODE`, and add the account with an identifiable label and the copied cookie.
+1. Open your deployed dashboard and authenticate with your `ACCESS_CODE`.
+2. Add an account with a label, your **AgentRouter email**, and your **AgentRouter password** (not your GitHub password).
+3. The runner logs in via AgentRouter API / Playwright fallback, verifies the session, and logs out to record check-in.
 
-All cookies are encrypted with AES-GCM prior to database insertion and are decrypted only in memory during claim execution.
+All credentials are encrypted with AES-GCM prior to database insertion and are decrypted only in memory during claim execution. Passwords are never returned to the browser UI.
 
 ---
 
@@ -155,8 +153,7 @@ When `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured, status notifica
 ## Security & Privacy
 
 - `ACCESS_CODE` protects all administrative API endpoints and runner sync routes.
-- GitHub cookies are encrypted at rest in Cloudflare D1 with unique initialization vectors (IV) per record.
-- If a session cookie is ever compromised, invalidate it immediately by navigating to **GitHub Settings -> Sessions -> Revoke**.
+- AgentRouter credentials (email & password) are encrypted at rest in Cloudflare D1 with unique initialization vectors (IV) per record. Passwords are never exposed in UI responses.
 - Local configuration files (`wrangler.jsonc`, `.env`, `.dev.vars`) are excluded from version control via `.gitignore`.
 
 ---

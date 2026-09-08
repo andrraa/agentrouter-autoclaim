@@ -4,16 +4,17 @@
   import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
   import * as Card from '$lib/components/ui/card';
+  import { validEmail } from './credentials';
 
-  type Account = { id: number; label: string; enabled: number; last_claim_at?: string; last_result?: string };
+  type Account = { id: number; label: string; email: string; needsCredentials: boolean; enabled: number; last_claim_at?: string; last_result?: string };
   type History = { id: number; label: string; success: number; result: string; created_at: string };
 
   let token = '';
   let loginError = '';
   let accounts: Account[] = [];
   let history: History[] = [];
-  let form = { label: '', githubCookie: '' };
-  let formErrors = { label: '', githubCookie: '' };
+  let form = { label: '', email: '', password: '' };
+  let formErrors = { label: '', email: '', password: '' };
   let message = '';
   let authenticated = false;
   let refreshing = false;
@@ -21,25 +22,29 @@
   let accountToDelete: Account | null = null;
   let deleting = false;
   let accountToEdit: Account | null = null;
-  let editForm = { label: '', githubCookie: '' };
-  let editErrors = { label: '', githubCookie: '' };
+  let editForm = { label: '', email: '', password: '' };
+  let editErrors = { label: '', email: '', password: '' };
   let savingEdit = false;
 
   function openEdit(account: Account) {
     accountToEdit = account;
-    editForm = { label: account.label, githubCookie: '' };
-    editErrors = { label: '', githubCookie: '' };
+    editForm = { label: account.label, email: account.email, password: '' };
+    editErrors = { label: '', email: '', password: '' };
   }
 
   async function saveEdit() {
     if (!accountToEdit) return;
-    editErrors = { label: '', githubCookie: '' };
+    editErrors = { label: '', email: '', password: '' };
     if (!editForm.label.trim()) {
       editErrors.label = 'Account label is required.';
       return;
     }
-    if (editForm.githubCookie.trim() && !editForm.githubCookie.includes('=')) {
-      editErrors.githubCookie = 'Cookie must be valid key=value pairs.';
+    if (!validEmail(editForm.email.trim())) {
+      editErrors.email = 'Valid AgentRouter email is required.';
+      return;
+    }
+    if (!editForm.password && (accountToEdit.needsCredentials || editForm.email.trim() !== accountToEdit.email)) {
+      editErrors.password = 'Password is required for new or changed credentials.';
       return;
     }
 
@@ -50,11 +55,12 @@
         body: JSON.stringify(editForm),
       });
       accountToEdit = null;
+      editForm.password = '';
       await load();
     } catch (e) {
       const err = (e as Error).message;
-      if (err.toLowerCase().includes('cookie')) {
-        editErrors.githubCookie = err;
+      if (err.toLowerCase().includes('password')) {
+        editErrors.password = err;
       } else {
         editErrors.label = err;
       }
@@ -106,32 +112,33 @@
   }
 
   async function add() {
-    formErrors = { label: '', githubCookie: '' };
+    formErrors = { label: '', email: '', password: '' };
     let hasError = false;
     if (!form.label.trim()) {
       formErrors.label = 'Account label is required.';
       hasError = true;
     }
-    if (!form.githubCookie.trim()) {
-      formErrors.githubCookie = 'GitHub cookie is required.';
+    if (!validEmail(form.email.trim())) {
+      formErrors.email = 'Valid AgentRouter email is required.';
       hasError = true;
-    } else if (!form.githubCookie.includes('=')) {
-      formErrors.githubCookie = 'Cookie must be valid key=value pairs.';
+    }
+    if (!form.password) {
+      formErrors.password = 'AgentRouter password is required.';
       hasError = true;
     }
     if (hasError) return;
 
     try {
       await call('/api/accounts', { method: 'POST', body: JSON.stringify(form) });
-      form = { label: '', githubCookie: '' };
-      formErrors = { label: '', githubCookie: '' };
+      form = { label: '', email: '', password: '' };
+      formErrors = { label: '', email: '', password: '' };
       await load();
     } catch (e) {
       const err = (e as Error).message;
       if (err.toLowerCase().includes('label')) {
         formErrors.label = err;
       } else {
-        formErrors.githubCookie = err;
+        formErrors.password = err;
       }
     }
   }
@@ -155,6 +162,9 @@
     authenticated = false;
     accounts = [];
     history = [];
+    form.password = '';
+    editForm.password = '';
+    accountToEdit = null;
     loginError = '';
   }
 </script>
@@ -200,7 +210,7 @@
     <div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-5 sm:p-6 shadow-2xl">
       <div class="mb-5 space-y-1.5">
         <h3 class="text-base sm:text-lg font-semibold tracking-tight text-zinc-100">Edit account</h3>
-        <p class="text-xs text-zinc-400">Update label or replace cookie (leave empty to keep existing).</p>
+        <p class="text-xs text-zinc-400">Use AgentRouter email and password. Leave password empty to keep it; changing email requires a password.</p>
       </div>
       <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); saveEdit(); }}>
         <div class="space-y-1.5">
@@ -222,21 +232,14 @@
         </div>
 
         <div class="space-y-1.5">
-          <Label for="edit-cookie" class="text-xs font-normal text-zinc-400">GitHub cookie</Label>
-          <Input
-            id="edit-cookie"
-            type="password"
-            placeholder="Leave empty to keep existing cookie"
-            bind:value={editForm.githubCookie}
-            autocomplete="off"
-            data-lpignore="true"
-            data-1p-ignore="true"
-            class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {editErrors.githubCookie ? 'border-red-500/80' : ''}"
-            oninput={() => editErrors.githubCookie = ''}
-          />
-          {#if editErrors.githubCookie}
-            <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{editErrors.githubCookie}</p>
-          {/if}
+          <Label for="edit-email" class="text-xs text-zinc-400">AgentRouter email</Label>
+          <Input id="edit-email" type="email" required maxlength={254} bind:value={editForm.email} autocomplete="off" class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100" />
+          {#if editErrors.email}<p class="text-xs text-red-400">{editErrors.email}</p>{/if}
+        </div>
+        <div class="space-y-1.5">
+          <Label for="edit-password" class="text-xs text-zinc-400">AgentRouter password</Label>
+          <Input id="edit-password" type="password" maxlength={1024} placeholder="Leave empty to keep existing password" bind:value={editForm.password} autocomplete="new-password" class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100" />
+          {#if editErrors.password}<p class="text-xs text-red-400">{editErrors.password}</p>{/if}
         </div>
 
         <div class="flex items-center justify-end gap-2 pt-1">
@@ -246,7 +249,7 @@
             size="sm"
             class="border-zinc-800 text-xs text-zinc-300 hover:bg-zinc-900"
             disabled={savingEdit}
-            onclick={() => accountToEdit = null}
+            onclick={() => { accountToEdit = null; editForm.password = ''; }}
           >
             Cancel
           </Button>
@@ -342,12 +345,12 @@
     <Card.Header class="px-4 py-4 sm:px-6">
       <Card.Title class="text-sm font-medium text-zinc-200">Add Account</Card.Title>
       <Card.Description class="text-xs text-zinc-500">
-        Paste the full cookie header from any authenticated <code class="rounded bg-zinc-900 px-1 py-0.5 text-zinc-400">github.com</code> request.
+        Enter your AgentRouter email and password (not your GitHub password). Credentials are encrypted at rest.
       </Card.Description>
     </Card.Header>
     <Card.Content class="px-4 pb-4 sm:px-6 sm:pb-6">
       <form onsubmit={(e) => { e.preventDefault(); add(); }}>
-        <div class="grid gap-3.5 sm:grid-cols-[1fr_2.5fr_auto] sm:items-start">
+        <div class="grid gap-3.5 sm:grid-cols-[1fr_1.5fr_1.5fr_auto] sm:items-start">
           <div class="space-y-1.5">
             <Label for="account-label" class="text-xs font-normal text-zinc-400">
               Account label <span class="text-red-400/80 ml-0.5">*</span>
@@ -366,23 +369,14 @@
           </div>
 
           <div class="space-y-1.5">
-            <Label for="github-cookie" class="text-xs font-normal text-zinc-400">
-              GitHub cookie <span class="text-red-400/80 ml-0.5">*</span>
-            </Label>
-            <Input
-              id="github-cookie"
-              type="password"
-              placeholder="user_session=...; _gh_sess=..."
-              bind:value={form.githubCookie}
-              autocomplete="off"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {formErrors.githubCookie ? 'border-red-500/80 focus-visible:ring-red-400' : ''}"
-              oninput={() => formErrors.githubCookie = ''}
-            />
-            {#if formErrors.githubCookie}
-              <p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{formErrors.githubCookie}</p>
-            {/if}
+            <Label for="account-email" class="text-xs text-zinc-400">AgentRouter email *</Label>
+            <Input id="account-email" type="email" required maxlength={254} bind:value={form.email} autocomplete="off" class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100" />
+            {#if formErrors.email}<p class="text-xs text-red-400">{formErrors.email}</p>{/if}
+          </div>
+          <div class="space-y-1.5">
+            <Label for="account-password" class="text-xs text-zinc-400">AgentRouter password *</Label>
+            <Input id="account-password" type="password" required maxlength={1024} bind:value={form.password} autocomplete="new-password" class="border-zinc-800 bg-zinc-900/40 text-xs text-zinc-100" />
+            {#if formErrors.password}<p class="text-xs text-red-400">{formErrors.password}</p>{/if}
           </div>
 
           <div class="pt-1 sm:pt-[22px]">
@@ -412,6 +406,9 @@
           <div class="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-zinc-900/20 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-3.5">
             <div class="space-y-0.5 min-w-0 flex-1">
               <p class="truncate text-sm font-medium text-zinc-200">{account.label}</p>
+              {#if account.needsCredentials}
+                <p class="text-xs text-amber-400">Email/password required — skipped by runner. Edit this account.</p>
+              {/if}
               <p class="text-[11px] text-zinc-500 font-mono">
                 {account.last_claim_at ? `Last run: ${new Date(account.last_claim_at).toLocaleString('en-US')}` : 'Never executed'}
               </p>

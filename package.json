@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.worker.json",
-    "test": "tsx scripts/cookies.test.ts",
+    "test": "tsx scripts/auth.test.ts",
     "deploy": "npm run build && wrangler deploy",
     "db:migrate": "wrangler d1 migrations apply agentrouter-autoclaim --remote"
   },
@@ -28,7 +28,6 @@
     "wrangler": "latest"
   },
   "dependencies": {
-    "@cloudflare/playwright": "^1.3.6",
     "tailwind-merge": "^3.6.0"
   }
 }
