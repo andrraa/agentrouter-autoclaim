@@ -16,7 +16,6 @@
   let formErrors = { label: '', githubCookie: '' };
   let message = '';
   let authenticated = false;
-  let claimingId: number | null = null;
   let refreshing = false;
   let accountToDelete: Account | null = null;
   let deleting = false;
@@ -119,20 +118,6 @@
       } else {
         formErrors.githubCookie = err;
       }
-    }
-  }
-
-  async function claim(id: number) {
-    claimingId = id;
-    message = 'Running claim…';
-    try {
-      const result = await call(`/api/accounts/${id}/claim`, { method: 'POST' });
-      await load();
-      message = result.result;
-    } catch (e) {
-      message = (e as Error).message;
-    } finally {
-      claimingId = null;
     }
   }
 
@@ -427,16 +412,15 @@
                   size="sm"
                   variant="outline"
                   class="h-7 border-zinc-800 px-2.5 text-xs text-zinc-300 hover:bg-zinc-900"
-                  disabled={claimingId !== null}
-                  onclick={() => claim(account.id)}
+                  disabled
+                  title="Claims run through GitHub Actions only"
                 >
-                  {claimingId === account.id ? 'Claiming…' : 'Claim'}
+                  GitHub Actions only
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   class="h-7 w-7 p-0 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900"
-                  disabled={claimingId !== null}
                   title="Edit account"
                   aria-label="Edit account"
                   onclick={() => openEdit(account)}
@@ -450,7 +434,6 @@
                   size="sm"
                   variant="ghost"
                   class="h-7 w-7 p-0 text-zinc-500 hover:text-red-400 hover:bg-zinc-900"
-                  disabled={claimingId !== null}
                   title="Delete account"
                   aria-label="Delete account"
                   onclick={() => accountToDelete = account}

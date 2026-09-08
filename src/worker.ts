@@ -322,8 +322,7 @@ async function api(request: Request, env: Env) {
   }
   if (match && request.method === 'DELETE' && !match[2]) { await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(match[1]).run(); return json({ ok: true }); }
   if (match && request.method === 'POST' && match[2]) {
-    const account = await env.DB.prepare('SELECT * FROM accounts WHERE id = ?').bind(match[1]).first<Account>();
-    return account ? json(await claim(account, env)) : json({ error: 'Account not found' }, 404);
+    return json({ error: 'Manual claims are disabled. Use GitHub Actions.' }, 403);
   }
   return json({ error: 'Not found' }, 404);
 }
