@@ -358,7 +358,7 @@
       <div class="mb-4 space-y-1.5">
         <h3 class="text-sm font-semibold tracking-tight text-zinc-100">Run GitHub Actions</h3>
         <p class="text-xs text-zinc-400">
-          Enter your dashboard access code to trigger the GitHub Actions claim workflow now.
+          Enter access code to continue.
         </p>
       </div>
       <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); submitTrigger(); }}>
