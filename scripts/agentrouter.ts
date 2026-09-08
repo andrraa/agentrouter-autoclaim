@@ -24,7 +24,9 @@ export async function authenticateAndLogout(login: () => Promise<ApiResult>, cal
     const result = await login();
     debug('login.response', { status: result.status, json: !!result.body, success: result.body?.success === true });
     if (result.status !== 200 || result.body?.success !== true) {
-      throw new AuthError('AgentRouter login rejected or challenge required', !result.body || result.status === 403 || result.status === 429);
+      const msg = result.body?.message || 'AgentRouter login rejected or challenge required';
+      const isChallenge = !result.body || result.status === 403 || result.status === 429 || msg.toLowerCase().includes('turnstile') || msg.toLowerCase().includes('challenge');
+      throw new AuthError(msg, isChallenge);
     }
     userId = result.body.data?.id;
     if (!Number.isSafeInteger(userId) || userId! <= 0) throw new AuthError('Login did not return an authenticated user');
@@ -78,25 +80,47 @@ export async function httpLogin(credentials: Credentials): Promise<boolean> {
 }
 
 export async function browserLogin(credentials: Credentials): Promise<boolean> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox']
+  });
   try {
-    const context = await browser.newContext();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US'
+    });
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
+
     const page = await context.newPage();
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-    const email = page.locator('input[name="username"]');
-    if (!await email.isVisible()) {
-      await page.getByRole('button', { name: /使用 邮箱或用户名 登录|Use Email or Username|Sign in with Email or Username/i }).click({ timeout: 15_000 });
+    await page.waitForTimeout(2000);
+
+    const emailInput = page.locator('input[name="username"], input[type="email"], input[placeholder*="email" i], input[placeholder*="username" i]').first();
+    if (!await emailInput.isVisible().catch(() => false)) {
+      const emailTab = page.getByRole('button', { name: /使用 邮箱或用户名 登录|Use Email or Username|Sign in with Email or Username|Password/i }).first();
+      if (await emailTab.isVisible().catch(() => false)) {
+        await emailTab.click().catch(() => null);
+        await page.waitForTimeout(1000);
+      }
     }
-    await email.fill(credentials.email);
-    await page.locator('input[name="password"]').fill(credentials.password);
+
+    await emailInput.fill(credentials.email);
+    const pwdInput = page.locator('input[name="password"], input[type="password"]').first();
+    await pwdInput.fill(credentials.password);
+    await page.waitForTimeout(1000);
+
     return await authenticateAndLogout(async () => {
       const pending = page.waitForResponse((response) => {
         const url = new URL(response.url());
         return url.origin === BASE && url.pathname === '/api/user/login' && response.request().method() === 'POST';
       }, { timeout: 45_000 });
-      // Attach rejection handling before click: failed navigation must not leave an unhandled waiter.
       const responsePromise = pending.catch(() => null);
-      await page.locator('button[type="submit"]').click();
+
+      const submitBtn = page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Log in"), button:has-text("登录")').first();
+      await submitBtn.click();
       const response = await responsePromise;
       if (!response) throw new AuthError('Browser login timed out (challenge or verification required)');
       return { status: response.status(), body: await response.json().catch(() => null) };
