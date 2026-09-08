@@ -249,12 +249,14 @@
           {#if editErrors.email}<p class="mt-1.5 pt-0.5 text-[11px] text-red-400">{editErrors.email}</p>{/if}
         </div>
         <div class="space-y-1.5">
-          <Label for="edit-password" class="text-xs font-normal text-zinc-400">Password</Label>
+          <Label for="edit-password" class="text-xs font-normal text-zinc-400">
+            Password {#if accountToEdit.needsCredentials}<span class="text-red-400/80 ml-0.5">*</span>{:else}<span class="text-zinc-500 text-[11px] font-normal">(optional)</span>{/if}
+          </Label>
           <Input
             id="edit-password"
             type="password"
             maxlength={1024}
-            placeholder="Leave empty to keep existing password"
+            placeholder={accountToEdit.needsCredentials ? '••••••••' : 'Leave empty to keep existing password'}
             bind:value={editForm.password}
             autocomplete="new-password"
             class="border-zinc-800 bg-zinc-900/50 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-400 {editErrors.password ? 'border-red-500/80' : ''}"
