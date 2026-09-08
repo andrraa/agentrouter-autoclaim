@@ -33,11 +33,9 @@ interface ClaimResult {
 }
 
 function githubCookies(header: string) {
-  const cookies = new Map<string, { name: string; value: string; domain: string; path: string }>();
-  for (const [name, value] of parseCookieString(header).entries()) {
-    cookies.set(name, { name, value, domain: '.github.com', path: '/' });
-  }
-  return [...cookies.values()];
+  return [...parseCookieString(header)].map(([name, value]) => ({
+    name, value, url: 'https://github.com/', secure: true
+  }));
 }
 
 async function addGithubCookies(context: BrowserContext, header: string) {

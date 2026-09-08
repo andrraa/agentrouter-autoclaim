@@ -28,9 +28,19 @@ function load(path: string, exports: string) {
   });
   return result.exports;
 }
-const worker = load('src/worker.ts', 'pureHttpClaim, claim, encrypt, decrypt');
-const runner = load('scripts/runner.ts', 'pureHttpClaim, browserClaim, run');
+const worker = load('src/worker.ts', 'pureHttpClaim, claim, encrypt, decrypt, githubCookies');
+const runner = load('scripts/runner.ts', 'pureHttpClaim, browserClaim, run, githubCookies');
 const { parseCookieString, serializeCookieMap, mergeSetCookies, captureGithubCookies } = cookieHelpers;
+
+for (const entrypoint of [worker, runner]) {
+  const cookies = entrypoint.githubCookies('user_session=test; __Host-user_session_same_site=test; __Secure-test=value');
+  assert.equal(cookies.length, 3);
+  for (const cookie of cookies) {
+    assert.equal(cookie.url, 'https://github.com/');
+    assert.equal(cookie.secure, true);
+    assert.equal(cookie.domain, undefined, 'Host-prefixed cookies must be host-only');
+  }
+}
 
 const jar = parseCookieString('user_session=old; _gh_sess=old; gone=x; expired=x');
 const headers = new Headers();

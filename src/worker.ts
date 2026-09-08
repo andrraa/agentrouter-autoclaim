@@ -38,7 +38,7 @@ function sessionUserId(value: string) {
   } catch { return undefined; }
 }
 function githubCookies(header: string) {
-  return [...parseCookieString(header)].map(([name, value]) => ({ name, value, url: 'https://github.com' }));
+  return [...parseCookieString(header)].map(([name, value]) => ({ name, value, url: 'https://github.com/', secure: true }));
 }
 async function addGithubCookies(context: import('@cloudflare/playwright').BrowserContext, header: string) {
   const cookies = githubCookies(header);
