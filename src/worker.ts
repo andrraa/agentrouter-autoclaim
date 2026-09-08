@@ -32,12 +32,31 @@ async function readCredentials(value: string, env: Env): Promise<Credentials> {
   return { email: credentials.email, password: credentials.password };
 }
 
+function formatWibDate(date: Date): string {
+  const formatter = new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  return `${formatter.format(date).replace(/\./g, ':')} WIB`;
+}
+
 async function notifyTelegram(env: Env, text: string) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID.trim(), text, disable_web_page_preview: true })
+      body: JSON.stringify({
+        chat_id: env.TELEGRAM_CHAT_ID.trim(),
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
     });
     console.log('[telegram] delivery', { status: res.status });
   } catch { console.error('[telegram] delivery failed'); }
@@ -67,7 +86,20 @@ async function api(request: Request, env: Env) {
       env.DB.prepare('UPDATE accounts SET last_claim_at = ?, last_result = ? WHERE id = ?').bind(createdAt, body.result, account.id),
       env.DB.prepare('INSERT INTO claim_history (account_id, success, result, created_at) VALUES (?, ?, ?, ?)').bind(account.id, success ? 1 : 0, body.result, createdAt)
     ]);
-    await notifyTelegram(env, `AgentRouter login/logout\nAccount: ${account.label}\nStatus: ${body.result}\nTime: ${createdAt}`);
+    const statusEmoji = success ? '✅' : '❌';
+    const statusText = success ? 'Success' : 'Failed';
+    const timeWib = formatWibDate(new Date(createdAt));
+
+    const message = [
+      `<b>${statusEmoji} AgentRouter Auto-Claim</b>`,
+      ``,
+      `<b>Account:</b> <code>${account.label}</code>`,
+      `<b>Status:</b> ${statusText}`,
+      `<b>Detail:</b> ${body.result}`,
+      `<b>Time:</b> ${timeWib}`
+    ].join('\n');
+
+    await notifyTelegram(env, message);
     return json({ ok: true });
   }
   if (request.method === 'GET' && url.pathname === '/api/accounts') {
