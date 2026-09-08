@@ -9,6 +9,7 @@ interface Env {
   ENCRYPTION_KEY: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  GH_ACTIONS_TOKEN?: string;
 }
 type Account = { id: number; label: string; github_cookie: string; enabled: number };
 const BASE = 'https://agentrouter.org';
@@ -252,6 +253,14 @@ async function claim(account: Account, env: Env) {
 async function api(request: Request, env: Env) {
   if (request.headers.get('authorization') !== `Bearer ${env.ACCESS_CODE}`) return json({ error: 'Unauthorized' }, 401);
   const url = new URL(request.url);
+  if (request.method === 'POST' && url.pathname === '/api/runner/trigger') {
+    try {
+      await triggerGithubActions(env);
+      return json({ ok: true, message: 'GitHub workflow dispatch accepted' }, 202);
+    } catch {
+      return json({ error: 'GitHub dispatch failed. Check Worker logs.' }, 502);
+    }
+  }
   if (request.method === 'GET' && url.pathname === '/api/runner/accounts') {
     const { results } = await env.DB.prepare('SELECT id, label, github_cookie, enabled FROM accounts WHERE enabled = 1').all<Account>();
     const decrypted = await Promise.all(
@@ -327,6 +336,24 @@ async function api(request: Request, env: Env) {
   return json({ error: 'Not found' }, 404);
 }
 
+async function triggerGithubActions(env: Env) {
+  if (!env.GH_ACTIONS_TOKEN) throw new Error('GH_ACTIONS_TOKEN is missing');
+  const response = await fetch('https://api.github.com/repos/andrraa/agentrouter-autoclaim/actions/workflows/claim.yml/dispatches', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.GH_ACTIONS_TOKEN}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'agentrouter-autoclaim',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ ref: 'main' })
+  });
+  console.log('[cron] GitHub dispatch', { status: response.status });
+  if (response.status !== 204) throw new Error(`GitHub dispatch failed: HTTP ${response.status}`);
+}
+
 export default {
+  async scheduled(_event: ScheduledController, env: Env) { await triggerGithubActions(env); },
   fetch(request: Request, env: Env) { return new URL(request.url).pathname.startsWith('/api/') ? api(request, env) : env.ASSETS.fetch(request); }
 } satisfies ExportedHandler<Env>;

@@ -17,6 +17,7 @@
   let message = '';
   let authenticated = false;
   let refreshing = false;
+  let triggering = false;
   let accountToDelete: Account | null = null;
   let deleting = false;
   let accountToEdit: Account | null = null;
@@ -74,6 +75,20 @@
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Request failed');
     return body;
+  }
+
+  async function triggerTest() {
+    if (triggering) return;
+    triggering = true;
+    message = 'Sending GitHub Actions trigger…';
+    try {
+      await call('/api/runner/trigger', { method: 'POST' });
+      message = 'GitHub Actions trigger accepted. Claim is not finished yet; refresh after the workflow completes.';
+    } catch (e) {
+      message = (e as Error).message;
+    } finally {
+      triggering = false;
+    }
   }
 
   async function load() {
@@ -298,6 +313,9 @@
 
     {#if authenticated}
       <div class="flex items-center gap-2 self-end sm:self-auto">
+        <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={triggering} onclick={triggerTest}>
+          {triggering ? 'Triggering…' : 'Test GH Actions'}
+        </Button>
         <Button variant="outline" size="sm" class="h-8 border-zinc-800 bg-transparent text-xs text-zinc-300 hover:bg-zinc-900" disabled={refreshing} onclick={load}>
           {refreshing ? 'Refreshing…' : 'Refresh'}
         </Button>

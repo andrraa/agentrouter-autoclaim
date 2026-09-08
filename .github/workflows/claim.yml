@@ -3,6 +3,10 @@ name: AgentRouter Auto Claim
 on:
   workflow_dispatch:
 
+concurrency:
+  group: agentrouter-claim
+  cancel-in-progress: false
+
 jobs:
   claim:
     runs-on: ubuntu-latest

@@ -24,13 +24,40 @@ function load(path: string, exports: string) {
     fetch: (...args: Parameters<typeof fetch>) => request(...args),
     process: { env: { WORKER_URL: 'https://worker.test', ACCESS_CODE: 'test' } },
     console: { log(message: string) { if (message.startsWith('[debug]')) diagnostics.push(message); }, error() {} },
-    crypto, atob, btoa, TextEncoder, TextDecoder, URL, URLSearchParams, Response,
+    crypto, atob, btoa, TextEncoder, TextDecoder, URL, URLSearchParams, Response, Request,
     setTimeout: (callback: () => void) => { callback(); }
   });
   return result.exports;
 }
-const worker = load('src/worker.ts', 'pureHttpClaim, claim, encrypt, decrypt, githubCookies');
+const worker = load('src/worker.ts', 'pureHttpClaim, claim, encrypt, decrypt, githubCookies, triggerGithubActions, api');
 const runner = load('scripts/runner.ts', 'pureHttpClaim, browserClaim, run, githubCookies, traceResponse');
+let dispatchCount = 0;
+let dispatchStatus = 204;
+request = async (url, init) => {
+  dispatchCount++;
+  assert.equal(String(url), 'https://api.github.com/repos/andrraa/agentrouter-autoclaim/actions/workflows/claim.yml/dispatches');
+  assert.equal(init?.method, 'POST');
+  assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test-token');
+  assert.equal(init?.body, JSON.stringify({ ref: 'main' }));
+  return new Response(null, { status: dispatchStatus });
+};
+await assert.rejects(() => worker.triggerGithubActions({}), /GH_ACTIONS_TOKEN is missing/);
+await worker.triggerGithubActions({ GH_ACTIONS_TOKEN: 'test-token' });
+dispatchStatus = 403;
+await assert.rejects(() => worker.triggerGithubActions({ GH_ACTIONS_TOKEN: 'test-token' }), /HTTP 403/);
+
+const triggerEnv = { ACCESS_CODE: 'test-access', GH_ACTIONS_TOKEN: 'test-token' };
+const triggerUrl = 'https://worker.test/api/runner/trigger';
+const beforeUnauthorized = dispatchCount;
+assert.equal((await worker.api(new Request(triggerUrl, { method: 'POST' }), triggerEnv)).status, 401);
+assert.equal(dispatchCount, beforeUnauthorized);
+const triggerHeaders = { authorization: 'Bearer test-access' };
+assert.equal((await worker.api(new Request(triggerUrl, { headers: triggerHeaders }), triggerEnv)).status, 404);
+dispatchStatus = 204;
+assert.equal((await worker.api(new Request(triggerUrl, { method: 'POST', headers: triggerHeaders }), triggerEnv)).status, 202);
+dispatchStatus = 403;
+assert.equal((await worker.api(new Request(triggerUrl, { method: 'POST', headers: triggerHeaders }), triggerEnv)).status, 502);
+
 const { parseCookieString, serializeCookieMap, mergeSetCookies, captureGithubCookies } = cookieHelpers;
 
 for (const entrypoint of [worker, runner]) {
