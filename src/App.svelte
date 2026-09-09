@@ -139,6 +139,23 @@
     }
   }
 
+  let claimingId: number | null = null;
+
+  async function claimAccount(account: Account) {
+    if (claimingId !== null) return;
+    claimingId = account.id;
+    message = `Claiming “${account.label}”…`;
+    try {
+      const res = await call(`/api/accounts/${account.id}/claim`, { method: 'POST' });
+      message = res.result ?? `Claim for “${account.label}” completed.`;
+      await load();
+    } catch (e) {
+      message = `Claim failed: ${(e as Error).message}`;
+    } finally {
+      claimingId = null;
+    }
+  }
+
   async function add() {
     formErrors = { label: '', email: '', password: '' };
     let hasError = false;
@@ -557,10 +574,11 @@
                   size="sm"
                   variant="outline"
                   class="h-7 border-zinc-800 px-2.5 text-xs text-zinc-300 hover:bg-zinc-900"
-                  disabled
-                  title="Claims run through GitHub Actions only"
+                  disabled={account.needsCredentials || claimingId !== null}
+                  title={account.needsCredentials ? 'Add email/password credentials first' : 'Claim now for this account'}
+                  onclick={() => claimAccount(account)}
                 >
-                  GitHub Actions only
+                  {claimingId === account.id ? 'Claiming…' : 'Claim'}
                 </Button>
                 <Button
                   size="sm"
