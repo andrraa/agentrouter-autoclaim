@@ -1,5 +1,11 @@
 # AgentRouter Auto-Claim
 
+[![Claim Workflow](https://github.com/andrraa/agentrouter-autoclaim/actions/workflows/claim.yml/badge.svg)](https://github.com/andrraa/agentrouter-autoclaim/actions/workflows/claim.yml)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg?style=flat-square)](https://github.com/andrraa/agentrouter-autoclaim/releases/tag/0.1.0)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020.svg?style=flat-square&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Svelte 5](https://img.shields.io/badge/Svelte-5-FF3E00.svg?style=flat-square&logo=svelte&logoColor=white)](https://svelte.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg?style=flat-square)](LICENSE)
+
 Automated multi-account daily reward claim system for AgentRouter. Built with a hybrid serverless architecture combining Cloudflare Workers, Cloudflare D1 SQL database, Svelte 5 (shadcn-svelte), and GitHub Actions scheduled runners with Cloudflare WARP.
 
 ---
